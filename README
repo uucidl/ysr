@@ -1,2 +1,11 @@
-YSR, a multiplatform build system based on GNU Make.
+YSR, a GNU Make front end / template
+
+Requirements:
+	GNU Bash
+	GNU Make >3.80
+
+Installation:
+	put bin/ into your path.
+
+
 

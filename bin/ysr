@@ -1,0 +1,49 @@
+#!/bin/bash
+# -*- sh -*-
+
+function die() {
+	 local msg=$1
+	 echo ${msg} >&2
+	 exit 1
+}
+
+##
+# load configuration file
+#
+
+YSR_rc="${HOME}/.ysrrc"
+[ -f "${YSR_rc}" ] && . ${YSR_rc}
+
+##
+# initialize variables
+#
+
+YSR_cpu_cores=${YSR_cpu_cores:-1}
+YSR_lib=${YSR_lib:-`dirname $0`/../lib}
+YSR_show_dont_do=${YSR_show_dont_do:-false}
+YSR_make_command=${YSR_make_command:-make}
+
+[ -d "${YSR_lib}" ] || die "Cannot find library directory: ${YSR_lib}"
+
+##
+# setup make execution
+#
+
+declare -i jobs
+
+jobs="${YSR_cpu_cores} + 1"
+
+PARALLISM="--jobs ${jobs}"
+INCLUDES="--include-dir ${YSR_lib}"
+MAKEOPTS="${PARALLISM} ${INCLUDES}"
+
+if ${YSR_show_dont_do}; then
+    show=echo
+else
+    show=
+fi
+
+##
+# let gnu make do its job
+
+exec ${show} ${YSR_make_command} ${MAKEOPTS} $*
