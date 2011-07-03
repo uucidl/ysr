@@ -57,6 +57,12 @@ ifeq ($(TOP),)
 TOP:=.
 endif
 
+ifneq ($(YSR.project.file),)
+TOP:=$(dir $(abspath $(YSR.project.file)))
+endif
+
+$(info $(TOP))
+
 -include $(YSR.project.file)
 
 $(info Using project file: $(YSR.project.file))
@@ -105,6 +111,7 @@ endif
 YSR.destdir?=$(TOP)/OUTPUT
 DEST_NAME=$(firstword $(OTYPE))_$(ARCH)_$(CPU)
 DEST=$(abspath $(YSR.destdir)/$(DEST_NAME))
+
 
 # C/C++:
 #
