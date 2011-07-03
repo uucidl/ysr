@@ -36,10 +36,6 @@ endif
 
 YSR.libdir=$(realpath $(YSR.libdir))
 MAKE:=$(YSR.bin)
--include $(YSR.project.file)
-
-$(info Using project file: $(YSR.project.file))
-YSR.project.name?="Unnamed"
 
 # clears up the suffixes to speed up make starting up somewhat
 #
@@ -57,6 +53,14 @@ YSR.project.name?="Unnamed"
 
 # TOP is the top of the source tree
 TOP:=$(realpath ./$(TOP))
+ifeq ($(TOP),)
+TOP:=.
+endif
+
+-include $(YSR.project.file)
+
+$(info Using project file: $(YSR.project.file))
+YSR.project.name?="Unnamed"
 
 # Now we are trying to find out on which architecture (OS/CPU
 # combination) we are building this project.
@@ -100,7 +104,7 @@ endif
 # programs are built)
 YSR.destdir?=$(TOP)/OUTPUT
 DEST_NAME=$(firstword $(OTYPE))_$(ARCH)_$(CPU)
-DEST=$(YSR.destdir)/$(DEST_NAME)
+DEST=$(abspath $(YSR.destdir)/$(DEST_NAME))
 
 # C/C++:
 #

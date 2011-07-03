@@ -46,7 +46,7 @@ YSR_project_file=`seekProjectRec`
 # setup make execution
 #
 
-if ![ -f "${YSR_project_file}" ]; then
+if [ ! -f "${YSR_project_file}" ]; then
     YSR_project_file=
 fi
 
