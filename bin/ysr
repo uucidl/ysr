@@ -8,6 +8,9 @@ function die() {
 }
 
 ##
+# Argument processing
+
+##
 # load configuration file
 #
 
@@ -19,7 +22,7 @@ YSR_rc="${HOME}/.ysrrc"
 #
 
 YSR_cpu_cores=${YSR_cpu_cores:-1}
-YSR_lib=${YSR_lib:-`dirname $0`/../lib}
+YSR_lib=${YSR_lib:-$(dirname $(dirname $0))/lib}
 YSR_show_dont_do=${YSR_show_dont_do:-false}
 YSR_make_command=${YSR_make_command:-make}
 
@@ -36,6 +39,7 @@ jobs="${YSR_cpu_cores} + 1"
 PARALLISM="--jobs ${jobs}"
 INCLUDES="--include-dir ${YSR_lib}"
 MAKEOPTS="${PARALLISM} ${INCLUDES}"
+MAKEVARS=YSR.libdir="${YSR_lib}"
 
 if ${YSR_show_dont_do}; then
     show=echo
@@ -46,4 +50,8 @@ fi
 ##
 # let gnu make do its job
 
-exec ${show} ${YSR_make_command} ${MAKEOPTS} $*
+if [ $# -gt 0 ]; then
+    exec ${show} ${YSR_make_command} ${MAKEOPTS} ${MAKEVARS} "$*"
+else
+    exec ${show} ${YSR_make_command} ${MAKEOPTS} ${MAKEVARS}
+fi
