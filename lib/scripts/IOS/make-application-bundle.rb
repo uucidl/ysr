@@ -84,8 +84,6 @@ if File.exists? EXECUTABLE_PATH
   
   @name = BUNDLE_NAME
 
-  die "executable #{EXECUTABLE_PATH} not under the destination directory #{DEST}." unless BUNDLE_PATH =~ /^#{DEST}\//
-
   @executable_path = "#{BUNDLE_PATH}/#{@executable}";
 
   if File.directory? BUNDLE_PATH then
