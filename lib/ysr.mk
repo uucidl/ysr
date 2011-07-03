@@ -36,6 +36,10 @@ endif
 
 YSR.libdir=$(realpath $(YSR.libdir))
 MAKE:=$(YSR.bin)
+-include $(YSR.project.file)
+
+$(info Using project file: $(YSR.project.file))
+YSR.project.name?="Unnamed"
 
 # clears up the suffixes to speed up make starting up somewhat
 #
@@ -94,8 +98,9 @@ endif
 
 # DEST is the top of the products tree (where objects and final
 # programs are built)
+YSR.destdir?=$(TOP)/OUTPUT
 DEST_NAME=$(firstword $(OTYPE))_$(ARCH)_$(CPU)
-DEST=$(TOP)/OUTPUT/$(DEST_NAME)
+DEST=$(YSR.destdir)/$(DEST_NAME)
 
 # C/C++:
 #

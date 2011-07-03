@@ -1,10 +1,22 @@
 #!/bin/bash
 # -*- sh -*-
 
-function die() {
+function die()
+{
 	 local msg=$1
 	 echo ${msg} >&2
 	 exit 1
+}
+
+##
+# Tries to find a ysr-project.mk file, starting from the current directory
+#
+function seekProjectRec()
+{
+    [ `pwd` -ef '/' ] && exit 0
+
+    ([ -f "project.ysr" ] && echo -n "project.ysr") ||
+      (echo -n ../ && (cd .. && seekProjectRec))
 }
 
 ##
@@ -28,9 +40,15 @@ YSR_make_command=${YSR_make_command:-make}
 
 [ -d "${YSR_lib}" ] || die "Cannot find library directory: ${YSR_lib}"
 
+YSR_project_file=`seekProjectRec`
+
 ##
 # setup make execution
 #
+
+if ![ -f "${YSR_project_file}" ]; then
+    YSR_project_file=
+fi
 
 declare -i jobs
 
@@ -41,6 +59,7 @@ INCLUDES="--include-dir ${YSR_lib}"
 MAKEOPTS="${PARALLISM} ${INCLUDES}"
 MAKEOPTS+=" YSR.libdir="${YSR_lib}""
 MAKEOPTS+=" YSR.bin="$0""
+MAKEOPTS+=" YSR.project.file="${YSR_project_file}""
 
 if ${YSR_show_dont_do}; then
     show=echo
