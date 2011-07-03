@@ -39,7 +39,8 @@ jobs="${YSR_cpu_cores} + 1"
 PARALLISM="--jobs ${jobs}"
 INCLUDES="--include-dir ${YSR_lib}"
 MAKEOPTS="${PARALLISM} ${INCLUDES}"
-MAKEVARS=YSR.libdir="${YSR_lib}"
+MAKEOPTS+=" YSR.libdir="${YSR_lib}""
+MAKEOPTS+=" YSR.bin="$0""
 
 if ${YSR_show_dont_do}; then
     show=echo
@@ -50,8 +51,4 @@ fi
 ##
 # let gnu make do its job
 
-if [ $# -gt 0 ]; then
-    exec ${show} ${YSR_make_command} ${MAKEOPTS} ${MAKEVARS} "$*"
-else
-    exec ${show} ${YSR_make_command} ${MAKEOPTS} ${MAKEVARS}
-fi
+exec ${show} ${YSR_make_command} ${MAKEOPTS} "$@"

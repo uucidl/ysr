@@ -35,6 +35,7 @@ $(error GNU Make 3.80 at least is required)
 endif
 
 YSR.libdir=$(realpath $(YSR.libdir))
+MAKE:=$(YSR.bin)
 
 # clears up the suffixes to speed up make starting up somewhat
 #
@@ -120,31 +121,12 @@ $(TOP)/ide/TAGS: require-etags
 	$(RM) "$@"
 	$(call perform-shell,find $${DIR} \( -name "*.mk" -o -name "Makefile" -o -name "*.c" -o -name "*.h" -o -name "*.hh" -o -name "*.cc" -o -name "*.cpp" \) -print0) | xargs -0 $(ETAGS) -a -o "$@"
 
-# only our own files
-$(TOP)/ide/LN2TAGS: require-etags
-	$(RM) "$@"
-	$(call perform-shell,[ "x`basename $${DIR}`" = "xthird-party" ] || find $${DIR} \( -name "*.c" -o -name "*.h" -o -name "*.hh" -o -name "*.cc" -o -name "*.cpp" \) -print0) | xargs -0 $(ETAGS) -a -o "$@"
+TAGS: $(TOP)/TAGS
 
-TAGS: $(TOP)/ide/TAGS
-LN2TAGS: $(TOP)/ide/LN2TAGS
-
-.PHONY: TAGS $(TOP)/ide/TAGS $(TOP)/ide/LN2TAGS
+.PHONY: TAGS $(TOP)/TAGS
 
 HOST_CONFIG_MK=$(TOP)/ysr/$(HOST_NAME)-config.mk
 -include $(HOST_CONFIG_MK)
-
-LN2DATA_ROOT ?= $(TOP)/../ln2data
-ifeq ($(realpath $(LN2DATA_ROOT)),)
-$(warning "Please set a LN2DATA_ROOT variable in your $(HOST_CONFIG_MK), pointing at your checkout of the ln2data svn tree.")
-ln2data-update:
-else
-ln2data-update:
-	(cd $(LN2DATA_ROOT) ; svn update)
-
-ifeq ($(LN2DATA_AUTOUPDATE),T)
-all: ln2data-update
-endif
-endif
 
 include $(YSR.libdir)/functions/functions.mk
 include $(YSR.libdir)/languages/gcc/rules.mk

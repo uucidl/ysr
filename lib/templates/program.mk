@@ -96,7 +96,6 @@ $(1)_LOCAL_EXEC:=./$$(notdir $$($(1)_PROG))
 $(1)_EXEC:=$$($(1)_PROG)
 $(1)_EXEC_PATH:=$$(dir $$($(1)_PROG))
 endif
-$(1)_LN2_RPATH:=$$(subst : ,:,$$(patsubst %,%:,$$(foreach d,$$($(1)_DATAFILES),$$(dir $$(d)))))
 
 ###
 ## find out everything about the required modules and validate
@@ -167,7 +166,7 @@ $$($(1)_PROG): $$($(1)_all_OBJS)
 	@$$(call link-$(2)-$$(COMPILER_FAMILY),$$^,$$@,)
 
 $(1)-bundle: $$($(1)_PROG)
-	@$(TOP)/scripts/$(ARCH)/make-application-bundle.rb com.uucidl.ln2/$(1) $$($(1)_PROG) $$($(1)_all_SHLIBS) $$($(1)_all_DATAFILES)
+	@$(YSR.libdir)/scripts/$(ARCH)/make-application-bundle.rb com.uucidl.ln2/$(1) $$($(1)_PROG) $$($(1)_all_SHLIBS) $$($(1)_all_DATAFILES)
 
 ifneq ($$($(1)_BUNDLE),)
 $(1): $(1)-bundle
@@ -197,7 +196,6 @@ $(1)_RUNENV:=export PATH=$$$$PATH:$$(dir $$($(1)_PROG))
 else
 $(1)_RUNENV:=export LD_LIBRARY_PATH=$$(dir $$($(1)_PROG))
 endif
-$(1)_RUNENV+=; export LN2_RPATH=$$$${LN2_RPATH}:$$($(1)_LN2_RPATH)
 
 ifeq ($(ARCH),MACOSX)
 $(1)_RUNENV+=; export MACOSX_DEPLOYMENT_TARGET=
