@@ -106,7 +106,7 @@ endif
 
 # DEST is the top of the products tree (where objects and final
 # programs are built)
-YSR.destdir?=$(TOP)/Build
+YSR.destdir?=$(TOP)/build
 DEST_NAME=$(firstword $(OTYPE))-$(ARCH)-$(CPU)
 DEST=$(abspath $(YSR.destdir)/$(DEST_NAME))
 
