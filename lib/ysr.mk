@@ -61,11 +61,9 @@ ifneq ($(YSR.project.file),)
 TOP:=$(dir $(abspath $(YSR.project.file)))
 endif
 
-$(info $(TOP))
-
 -include $(YSR.project.file)
 
-$(info Using project file: $(YSR.project.file))
+$(info Using project file: $(YSR.project.file), TOP is $(TOP))
 YSR.project.name?="Unnamed"
 
 # Now we are trying to find out on which architecture (OS/CPU
