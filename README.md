@@ -50,16 +50,22 @@ helloworld/Makefile:
 
 	include ysr.mk
 
-	helloworld_OBJS:=$(DEST)/helloworld/hello.o
+	helloworld_OBJS:=$(DEST)/src/hello.o
 
 	$(call mk-c-prog-rule,helloworld)
 
-The system finds out which source file to compile by taking the name of the objects (here $(DEST)/apps/helloworld/hello.o) then
-translating the path from $(DEST) (output tree) back to $(TOP) (source tree) and finding out candidates:
+The system finds out which source file to compile by starting from the name of the objects (here $(DEST)/helloworld/hello.o) then
+translating the path from $(DEST) (output tree) back to $(TOP) (source tree) in order to find out candidates:
 
-Here it would look up for a file named
-    $(TOP)/apps/helloworld/hello.c
+* $(TOP)/src/hello.c
+* $(TOP)/src/hello.cc — (c++) 
+* $(TOP)/src/hello.m  — (objective c)
+* ... — etc
 
-and if that one isn't found, for a
-    $(TOP)/apps/helloworld/hello.cc (c++) file.
+The program's executable will be compiled to
+
+* $(DEST)/helloworld/helloworld.elf 
+* or $(DEST)/helloworld/helloworld.app on OSX
+
+
 

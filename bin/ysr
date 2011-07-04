@@ -9,7 +9,7 @@ function die()
 }
 
 ##
-# Tries to find a ysr-project.mk file, starting from the current directory
+# Tries to find a project file, starting from the current directory
 #
 function seekProjectRec()
 {
