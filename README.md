@@ -1,11 +1,32 @@
 YSR, a GNU Make front end / template
 
+# About
+
+YSR is a front end for GNU Make. It is meant for use for development in C/C++ without an IDE.
+
+It imposes a structure to all programs using it, and offers the following services:
+
+* an homogeneous handling of build compilation flags
+* platform and cpu based constants
+* creation of OSX application bundles
+* higher level dependencies through modules
+* low-level dependency
+* no-recursive Make
+
+Target platforms are:
+
+* WIN32 (mingw32)
+* MACOSX 
+* LINUX
+
 # Requirements
 	GNU Bash
 	GNU Make >3.80
+	Ruby (on OSX)	
 
 # Installation
-	put bin/ into your path.
+
+Just put bin/ into your path.
 
 # Usage
 
