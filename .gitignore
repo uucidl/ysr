@@ -1,0 +1,10 @@
+build/*
+*~
+*.bak
+*.o
+*.a
+*.pyc
+\#*\#
+.DS_Store
+*.pbxuser
+*.mode1v3

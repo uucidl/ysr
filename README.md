@@ -9,9 +9,9 @@ YSR, a GNU Make front end / template
 
 # Usage
 
-Binaries, dependency files and other products of the build are produced in their corresponding subdirectory inside OUTPUT. The build system is forbidden to create files outside of this directories.
+Binaries, dependency files and other products of the build are produced in their corresponding subdirectory inside build/. The build system is forbidden to create files outside of this directories.
 
-Thus, to clean up a project, deleting OUTPUT is sufficient.
+Thus, to clean up a project, deleting build/ is sufficient.
 
 Using the two function mk-c-prog-rule and mk-c++-prog-rule functions in one Makefile will dynamically create rules in order to build a program. They will usually be named
       <program_name>-<rule_name>
@@ -27,7 +27,6 @@ Thus to define a small program, say helloworld, you would create a Makefile with
 
 helloworld/Makefile:
 
-	TOP=.
 	include ysr.mk
 
 	helloworld_OBJS:=$(DEST)/helloworld/hello.o

@@ -1,4 +1,4 @@
 YSR.project.name="YSR examples"
 
 ## shows how destination binaries may go outside the project directory
-YSR.destdir=$(TOP)/../OUTPUT
+YSR.destdir=$(TOP)/../build
