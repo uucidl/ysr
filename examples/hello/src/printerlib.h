@@ -1,1 +1,1 @@
-extern void printer();
+extern void printer(char const* value);

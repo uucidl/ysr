@@ -1,6 +1,6 @@
 #include <stdio.h>
 
-extern void printer()
+extern void printer(char const* value)
 {
-	puts ("Hello, World from library\n");
+	printf ("Hello, World from library (%s)\n", value);
 }
