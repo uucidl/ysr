@@ -23,6 +23,9 @@ Target platforms are:
 	GNU Bash
 	GNU Make >3.80
 	Ruby (on OSX)	
+	GNU Sed
+	GNU Awk
+	dirname, uname, sh, hostname, date, which, cp
 
 # Installation
 
