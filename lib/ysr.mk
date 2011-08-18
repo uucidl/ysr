@@ -70,7 +70,7 @@ YSR.project.name?="Unnamed"
 # combination) we are building this project.
 #
 # ARCH represents the software/hardware architecture (LINUX, WIN32, MACOSX)
-# CPU  represents the cpu (i386, PENTIUM, PENTIUMPRO, K8, POWERPC, EE)
+# CPU  represents the cpu (i386, PENTIUM, PENTIUMPRO, x86_64, POWERPC, EE)
 #
 HOST_SYSTEM:=$(shell sh $(YSR.libdir)/scripts/guess-build-system.sh)
 HOST_ARCH:=$(firstword $(HOST_SYSTEM))
