@@ -191,31 +191,31 @@ COMPILER_FAMILY=gcc
 %.o: %.mm
 	@$(call compile-objcc-$(COMPILER_FAMILY),$<,$@,$($<_FLAGS))
 
-$(DEST)/%.o: %.c $(DEST)/%.o.dep
+$(DEST)/%.o: $(TOP)/%.c $(DEST)/%.o.dep
 	@$(call require-directory,$(dir $@))
 	@$(call compile-c-$(COMPILER_FAMILY),$<,$@,$($<_FLAGS))
 
-$(DEST)/%.o: %.cpp $(DEST)/%.o.dep
+$(DEST)/%.o: $(TOP)/%.cpp $(DEST)/%.o.dep
 	@$(call require-directory,$(dir $@))
 	@$(call compile-c++-$(COMPILER_FAMILY),$<,$@,$($<_FLAGS))
 
-$(DEST)/%.o: %.cc $(DEST)/%.o.dep
+$(DEST)/%.o: $(TOP)/%.cc $(DEST)/%.o.dep
 	@$(call require-directory,$(dir $@))
 	@$(call compile-c++-$(COMPILER_FAMILY),$<,$@,$($<_FLAGS))
 
-$(DEST)/%.o: %.m $(DEST)/%.o.dep
+$(DEST)/%.o: $(TOP)/%.m $(DEST)/%.o.dep
 	@$(call require-directory,$(dir $@))
 	@$(call display-left,"$*.o.dep")
 	@$(call compile-objc-$(COMPILER_FAMILY),$<,$@,$($<_FLAGS))
 	@$(call display-right,"done")
 
-$(DEST)/%.o: %.mm $(DEST)/%.o.dep
+$(DEST)/%.o: $(TOP)/%.mm $(DEST)/%.o.dep
 	@$(call require-directory,$(dir $@))
 	@$(call display-left,"$*.o.dep")
 	@$(call compile-objcc-$(COMPILER_FAMILY),$<,$@,$($<_FLAGS))
 	@$(call display-right,"done")
 
-$(DEST)/%.o: %.s $(DEST)/%.o.dep
+$(DEST)/%.o: $(TOP)/%.s $(DEST)/%.o.dep
 	@$(call compile-as-$(COMPILER_FAMILY),$<,$@,$($<_FLAGS))
 
 ##
