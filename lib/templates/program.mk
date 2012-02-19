@@ -230,21 +230,23 @@ $(1)-run: $(1)
 		true; \
 	} | tee $$($(1)_REPORTFILE) >&3) ; exec 3>&- ; [ $$$${RC} -eq 0 ] || false)
 
+$(1)-COPY_SHLIBS=true $$(foreach D,$$($(1)_all_SHLIBS),; cp -f $$(D) $$(dir $$($(1)_PROG)))
+
 ##
 # simple version of the above (just running the program)
 $(1)-run-simple: $(1)
 	@echo "* Testing $(1)"
-	@true $$(foreach D,$$($(1)_all_SHLIBS),; cp -f $$(D) $$(dir $$($(1)_PROG)))
+	@$$($(1)-COPY_SHLIBS)
 	@$$($(1)_RUNENV)
 	@$$($(1)_EXEC) $$($(1)_ARGS)
 
 $(1)-debug: $(1)
 	@[ "$(OTYPE)" == "DEBUG" ] || $(call display-interactive-warning,"'You are debugging yet OTYPE=$(OTYPE) (use $(MAKE) OTYPE=DEBUG instead).. symbols might not be available to the debugger.'")
-	@true $$(foreach D,$$($(1)_all_SHLIBS),; cp -f $$(D) $$(dir $$($(1)_PROG)))
+	@$$($(1)-COPY_SHLIBS)
 	@($$($(1)_RUNENV) ; gdb --args $$($(1)_EXEC) $$($(1)_ARGS))
 
 $(1)-valgrind: $(1)
-	@$$(foreach D,$$($(1)_all_SHLIBS),cp -f $$(D) $$(dir $$($(1)_PROG)))
+	@$$($(1)-COPY_SHLIBS)
 	@($$($(1)_RUNENV) ; valgrind --suppressions=$(TOP)/scripts/valgrind.suppr --smc-check=all --leak-check=full --show-reachable=yes $$(VALGRIND_ARGS) $$($(1)_PROG) $$($(1)_ARGS))
 
 $(1)-depclean:
