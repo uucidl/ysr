@@ -39,7 +39,7 @@ Binaries, dependency files and other products of the build are produced in their
 
 Thus, to clean up a project, deleting build/ is sufficient.
 
-Using the two function mk-c-prog-rule and mk-c++-prog-rule functions in one Makefile will dynamically create rules in order to build a program. They will usually be named
+Using the two functions `ysr-add-c-prog' and `ysr-add-c++-prog' in one Makefile will dynamically create rules in order to build a program. They will usually be named
       <program_name>-<rule_name>
 
 The following commands
@@ -47,7 +47,7 @@ The following commands
 	ysr help
 	ysr help-rules
 
-Will list the defined programs and rules in a Makefile (as long as mk-?-prog-rule was used)
+Will list the defined programs and rules in a Makefile (as long as ysr-add-*-prog was used)
 
 # Example project definitions
 
@@ -61,7 +61,7 @@ helloworld/Makefile:
 
 	helloworld_OBJS:=$(DEST)/src/hello.o
 
-	$(call mk-c-prog-rule,helloworld)
+	$(call ysr-add-c-prog,helloworld)
 
 The system finds out which source file to compile by starting from the name of the objects (here $(DEST)/helloworld/hello.o) then
 translating the path from $(DEST) (output tree) back to $(TOP) (source tree) in order to find out candidates:
@@ -85,7 +85,7 @@ The file path obey the following pattern:
   $(TOP)/ysr/`hostname`-config.mk
 
 That is, if your machine is named "edge" then the configuration file can be created as:
-   
+
   ysr/edge-config.mk
 
 The file must be consistent with the name returned by the hostname command.

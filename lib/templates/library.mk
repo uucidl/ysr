@@ -30,10 +30,32 @@ include $(YSR.libdir)/functions/template-functions.mk
 #
 # to use in programs.
 
-mk-c-sharedlib-rule=$(eval $(call mk-lib-rule-template,$(1),c,shared))
-mk-c++-sharedlib-rule=$(eval $(call mk-lib-rule-template,$(1),c++,shared))
-mk-c-staticlib-rule=$(eval $(call mk-lib-rule-template,$(1),c,static))
-mk-c++-staticlib-rule=$(eval $(call mk-lib-rule-template,$(1),c++,static))
+##
+# call these to create your library
+
+##
+# Create a C language shared library.
+#
+# @param $(1) name of the library
+ysr-add-c-lib-shared=$(eval $(call ysrprv-lib-rule-template,$(1),c,shared))
+
+##
+# Create a C++ language shared library.
+#
+# @param $(1) name of the library
+ysr-add-c++-lib-shared=$(eval $(call ysrprv-lib-rule-template,$(1),c++,shared))
+
+##
+# Create a C language static library.
+#
+# @param $(1) name of the library
+ysr-add-c-lib-static=$(eval $(call ysrprv-lib-rule-template,$(1),c,static))
+
+##
+# Create a C++ language static library.
+#
+# @param $(1) name of the library
+ysr-add-c++-lib-static=$(eval $(call ysrprv-lib-rule-template,$(1),c++,static))
 
 # only for OSX
 # $(1) library name for the bundle. Used to lookup variables.
@@ -44,11 +66,20 @@ mk-c++-staticlib-rule=$(eval $(call mk-lib-rule-template,$(1),c++,static))
 # will export
 # <library-name>_BUNDLE : location / name of the bundle
 #
-mk-c-bundle-rule=$(eval $(call mk-lib-rule-template,$(1),c,bundle))
-mk-c++-bundle-rule=$(eval $(call mk-lib-rule-template,$(1),c++,bundle))
 
 ##
-# mk-lib-rule-template : when 'evaled' will add rules to build the
+# Create a C language OSX bundle library
+# @param $(1) name of the bundle
+ysr-c-bundle-add=$(eval $(call ysrprv-lib-rule-template,$(1),c,bundle))
+
+##
+# Create a C++ language OSX bundle library
+# @param $(1) name of the bundle
+ysr-c++-bundle-add=$(eval $(call ysrprv-lib-rule-template,$(1),c++,bundle))
+
+##
+# @private
+# ysrprv-lib-rule-template : when 'evaled' will add rules to build the
 # provided "library"
 #
 # $(1) : name of the library
@@ -57,7 +88,7 @@ mk-c++-bundle-rule=$(eval $(call mk-lib-rule-template,$(1),c++,bundle))
 #
 # requires <library_name>_OBJS <library_name>_DEPS <library_name>_REQUIRES
 
-define mk-lib-rule-template
+define ysrprv-lib-rule-template
 
 $(1)_LIBNAME?=$(subst .,-,$(1))
 $(1)_LIB:=$$(call to-lib-$$(ARCH)-$(3),$$(DEST)/$(1)/$$($(1)_LIBNAME))

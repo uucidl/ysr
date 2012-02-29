@@ -3,7 +3,7 @@ include ysr.mk
 ## example 1: how to build a shared library
 printerlib_impl_OBJS=$(DEST)/hello/src/printerlib.o
 printerlib_impl_LIBNAME=printer
-$(call mk-c-sharedlib-rule,printerlib_impl)
+$(call ysr-add-c-lib-shared,printerlib_impl)
 
 ## example 2: a module which when used, let your program depend on a shared library
 printerlib=1
@@ -24,6 +24,6 @@ helloworld_CFLAGS=-ffast-math
 ### example 3.2: how to define preprocessor constants
 helloworld_DEFINES=VALUE="\"Hello_from_CPP\""
 
-$(call mk-c-prog-rule,helloworld)
+$(call ysr-add-c-prog,helloworld)
 
 all: help

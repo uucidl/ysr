@@ -38,26 +38,46 @@ include $(YSR.libdir)/functions/template-functions.mk
 #
 
 ##
-# These two functions take the name of a program as parameter, and
-# will build the appropriate rules using <program_name>_<suffix>.
+# These functions take the name of a program as parameter, and will
+# build the appropriate rules using <program_name>_<suffix>.
 #
 # Using:
 #
-# $(call mk-c-prog-rule,myprogram)
+# $(call ysr-add-c-prog,myprogram)
 #
 # will create rules myprogram, myprogram-run, myprogram-debug using
 # myprogram_OBJS and myprogram_REQUIRES to find the objects to build
 # and their dependencies, respectively.
 #
-mk-c-prog-rule=$(eval $(call mk-prog-rule-template,$(1),c,))
-mk-c++-prog-rule=$(eval $(call mk-prog-rule-template,$(1),c++,))
-mk-c-console-prog-rule=$(eval $(call mk-prog-rule-template,$(1),c,console))
-mk-c++-console-prog-rule=$(eval $(call mk-prog-rule-template,$(1),c++,console))
+
+##
+# Create a program based on the C runtime
+#
+# @param $(1) name of the program
+ysr-add-c-prog=$(eval $(call ysr-prv-prog-rule-template,$(1),c,))
+
+##
+# Create a program based on the C++ runtime
+#
+# @param $(1) name of the program
+ysr-add-c++-prog=$(eval $(call ysr-prv-prog-rule-template,$(1),c++,))
+
+##
+# Create a console program based on the C runtime
+#
+# @param $(1) name of the program
+ysr-add-c-console-prog=$(eval $(call ysr-prv-prog-rule-template,$(1),c,console))
+
+##
+# Create a console program based on the C++ runtime
+#
+# @param $(1) name of the program
+ysr-add-c++-console-prog=$(eval $(call ysr-prv-prog-rule-template,$(1),c++,console))
 
 ### PRIVATE IMPLEMENTATION #
 
 ##
-# mk-prog-rule-template : when 'evaled' will add rules to build the
+# ysr-prv-prog-rule-template : when 'evaled' will add rules to build the
 # provided "program"
 #
 # $(1) : name of the program
@@ -66,7 +86,7 @@ mk-c++-console-prog-rule=$(eval $(call mk-prog-rule-template,$(1),c++,console))
 #
 # requires <program_name>_OBJS <program_name>_DEPS <program_name>_REQUIRES
 
-define mk-prog-rule-template
+define ysr-prv-prog-rule-template
 
 ## The program
 
