@@ -50,13 +50,21 @@ if [ ! -f "${YSR_project_file}" ]; then
     YSR_project_file=
 fi
 
+if [ -f "Makefile.ysr" ]; then
+    YSR_makefile=Makefile.ysr
+fi
+
 declare -i jobs
 
 jobs="${YSR_cpu_cores} + 1"
 
 PARALLISM="--jobs ${jobs}"
 INCLUDES="--include-dir ${YSR_lib}"
-MAKEOPTS="${PARALLISM} ${INCLUDES}"
+
+if [ -f "${YSR_makefile}" ]; then
+MAKEOPTS+="-f ${YSR_makefile}"
+fi
+MAKEOPTS+=" ${PARALLISM} ${INCLUDES}"
 MAKEOPTS+=" YSR.libdir="${YSR_lib}""
 MAKEOPTS+=" YSR.bin="$0""
 MAKEOPTS+=" YSR.project.file="${YSR_project_file}""
