@@ -52,12 +52,14 @@ ifeq ($(ARCH),MACOSX)
 GLOBAL_CXXFLAGS+=-fvisibility=hidden
 GCCFLAGS+=-no-cpp-precomp
 
+ifneq ($(CPU),x86_64)
 ## compatibility towards tiger
 GLOBAL_LDFLAGS+=-mmacosx-version-min=10.4
 MACOSX_DEPLOYMENT_TARGET=10.4
 export MACOSX_DEPLOYMENT_TARGET
 GCCFLAGS+=-m32
 GLOBAL_LDFLAGS+=-m32
+endif
 
 endif
 

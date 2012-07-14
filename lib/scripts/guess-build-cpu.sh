@@ -13,8 +13,8 @@ case "${UNAME_MACHINE}:${UNAME_CPU}" in
     i*86:*)
 	echo 'i386'
 	exit 0 ;;
-    x86_64:*AMD*)
-	echo 'K8'
+    x86_64:*)
+	echo 'x86_64'
 	exit 0 ;;
     Power\ PC*:*)
 	echo 'POWERPC'
