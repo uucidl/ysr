@@ -75,3 +75,17 @@ The program's executable will be compiled to
 
 * $(DEST)/helloworld/helloworld.elf
 * or $(DEST)/helloworld/helloworld.app on OSX
+
+# Per host configuration
+
+It is often useful to define host-specific configuration and for this purpose, ysr loads a per project configuration file before reading your makefile.
+
+The file path obey the following pattern:
+
+  $(TOP)/ysr/`hostname`-config.mk
+
+That is, if your machine is named "edge" then the configuration file can be created as:
+   
+  ysr/edge-config.mk
+
+The file must be consistent with the name returned by the hostname command.
