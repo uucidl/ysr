@@ -5,12 +5,17 @@ thirdparty_gcc_profile_mk=1
 
 CSTD=-std=c99
 GCCFLAGS+=-Wall -Wextra -Winit-self -Wno-undef -Wno-unused
-GCC_VERSION:=$(strip $(shell PATH="$(PATH)" sh $(YSR.libdir)/scripts/cc-version.sh "$(CC)"))
-GCC_VERSION_MAJOR:=$(word 1,$(GCC_VERSION))
-GCC_VERSION_MINOR:=$(word 2,$(GCC_VERSION))
-
-ifeq ($(GCC_VERSION),)
+CC_VERSION:=$(strip $(shell PATH="$(PATH)" sh $(YSR.libdir)/scripts/cc-version.sh "$(CC)"))
+ifeq ($(CC_VERSION),)
 $(error "Could not find out exact gcc version (Using '$(CC)').")
+endif
+
+GCC_VARIANT:=$(word 1,$(CC_VERSION))
+GCC_VERSION_MAJOR:=$(word 2,$(CC_VERSION))
+GCC_VERSION_MINOR:=$(word 3,$(CC_VERSION))
+
+ifneq ($(filter-out clang gcc,$(GCC_VARIANT)),)
+$(error "Unknown gcc variant '$(GCC_VARIANT)'")
 endif
 
 # the math library
@@ -27,7 +32,11 @@ endif
 GLOBAL_OFLAGS+=-fstrict-aliasing -Wstrict-aliasing=2
 
 ifneq ($(or $(findstring TEST,$(OTYPE)),$(findstring RELEASE,$(OTYPE))),)
-GLOBAL_OFLAGS+=-Os -ffast-math -fexpensive-optimizations
+GLOBAL_OFLAGS+=-Os -ffast-math
+ifeq ($(GCC_VARIANT),gcc)
+GLOBAL_OFLAGS+=-fexpensive-optimizations
+endif
+
 # for later versions of gcc
 #GCCFLAGS+=-Wsuggest-attribute=const -Wsuggest-attribute=pure
 endif
