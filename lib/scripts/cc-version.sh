@@ -21,9 +21,9 @@ GCC_VERSION=`"${1}" -v 2>&1 | awk '/gcc version/ {
 	 minor = version;
 	 gsub(/^[0-9]+\./, "", minor);
 	 major = substr(version, 0, length(version) - length(minor));
-	 gsub(/[^0-9].*$/, "", minor);
+	 gsub(/ *[^0-9].*$/, "", minor);
 	 print major " " minor;
-}' | sed -e 's/\.//g'`
+}' | sed -e 's/\./ /g'`
 
 APPLE_LLVM_CLANG_VERSION=`"${1}" -v 2>&1 | awk '/Apple LLVM version/ {
 	 gsub(/^Apple LLVM version */, "");
@@ -33,7 +33,7 @@ APPLE_LLVM_CLANG_VERSION=`"${1}" -v 2>&1 | awk '/Apple LLVM version/ {
 	 major = substr(version, 0, length(version) - length(minor));
 	 gsub(/[^0-9].*$/, "", minor);
 	 print major " " minor;
-}' | sed -e 's/\.//g'`
+}' | sed -e 's/\./ /g'`
 
 if [ -n "${GCC_VERSION}" ]; then
   printf "gcc ${GCC_VERSION}\n"
