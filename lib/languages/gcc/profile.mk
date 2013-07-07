@@ -74,7 +74,7 @@ endif
 
 # Executables look for their dll in their installation dir.
 ifeq ($(ARCH),LINUX)
-GLOBAL_LDFLAGS+=-Wl-z,origin -Wl,-rpath,'$$ORIGIN/.'
+GLOBAL_LDFLAGS+=-Wl,-z,origin -Wl,-rpath,'$$ORIGIN/.'
 endif
 
 
