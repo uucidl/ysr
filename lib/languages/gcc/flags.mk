@@ -9,6 +9,6 @@ CXXFLAGS_dso=-fvisibility=default
 else ifeq ($(GCC_VERSION_MAJOR),3)
 CXXFLAGS_dso=
 else
-$(error "Undefined CXXFLAGS_dso" $(GCC_VERSION))
+$(error "Undefined CXXFLAGS_dso" $(CC_VERSION))
 endif
 endif
