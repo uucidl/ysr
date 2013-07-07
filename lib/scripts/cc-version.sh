@@ -35,8 +35,20 @@ APPLE_LLVM_CLANG_VERSION=`"${1}" -v 2>&1 | awk '/Apple LLVM version/ {
 	 print major " " minor;
 }' | sed -e 's/\./ /g'`
 
+GENERIC_CLANG_VERSION=`"${1}" -v 2>&1 | awk '/clang version/ {
+	 gsub(/^.* clang version */, "");
+	 version = $0;
+	 minor = version;
+	 gsub(/^[0-9]+\./, "", minor);
+	 major = substr(version, 0, length(version) - length(minor));
+	 gsub(/[^0-9].*$/, "", minor);
+	 print major " " minor;
+}' | sed -e 's/\./ /g'`
+
 if [ -n "${GCC_VERSION}" ]; then
   printf "gcc ${GCC_VERSION}\n"
 elif [ -n "${APPLE_LLVM_CLANG_VERSION}" ]; then
   printf "clang ${APPLE_LLVM_CLANG_VERSION}\n"
+elif [ -n "${GENERIC_CLANG_VERSION}" ]; then
+  printf "clang ${GENERIC_CLANG_VERSION}\n"
 fi
