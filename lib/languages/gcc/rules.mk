@@ -57,9 +57,9 @@ all_CPPFLAGS=$(CPPFLAGS) $(DFLAGS) $(IFLAGS)
 # $(3): extra-flags
 #
 compile-c-gcc= \
-	$(call display-left,"[$(CC) C] $(notdir $(1))") && \
+	$(call ysr-display-left,"[$(CC) C] $(notdir $(1))") && \
 	$(CC) $(CSTD) $(CFLAGS) $(OFLAGS) $(all_CPPFLAGS) $(3) -c $(1) -o $(2) && \
-	$(call display-right,"done")
+	$(call ysr-display-right,"done")
 
 ##
 # compile C++ files
@@ -68,9 +68,9 @@ compile-c-gcc= \
 # $(2): path of the object
 #
 compile-c++-gcc= \
-	$(call display-left,"[$(CXX) C++] $(notdir $(1))") && \
+	$(call ysr-display-left,"[$(CXX) C++] $(notdir $(1))") && \
 	$(CXX) $(CXXFLAGS) $(OFLAGS) $(all_CPPFLAGS) $(3) -c $(1) -o $(2) && \
-	$(call display-right,"done")
+	$(call ysr-display-right,"done")
 
 ##
 # compile objective C files
@@ -79,9 +79,9 @@ compile-c++-gcc= \
 # $(2): path of the object
 #
 compile-objc-gcc= \
-	$(call display-left,"[$(CXX) ObjC] $(notdir $(1))") && \
+	$(call ysr-display-left,"[$(CXX) ObjC] $(notdir $(1))") && \
 	$(CC) -x objective-c $(CSTD) $(CFLAGS) $(OFLAGS) $(all_CPPFLAGS) $(3) -c $(1) -o $(2) && \
-	$(call display-right,"done")
+	$(call ysr-display-right,"done")
 
 ##
 # compile objective C files
@@ -90,9 +90,9 @@ compile-objc-gcc= \
 # $(2): path of the object
 #
 compile-objcc-gcc= \
-	$(call display-left,"[$(CXX) ObjC] $(notdir $(1))") && \
+	$(call ysr-display-left,"[$(CXX) ObjC] $(notdir $(1))") && \
 	$(CXX) $(CFLAGS) $(OFLAGS) $(all_CPPFLAGS) $(3) -c $(1) -o $(2) && \
-	$(call display-right,"done")
+	$(call ysr-display-right,"done")
 
 ##
 # compile as files (gcc assembly)
@@ -102,9 +102,9 @@ compile-objcc-gcc= \
 # $(3): extra flags
 #
 compile-as-gcc= \
-	$(call display-left,"[$(CC) AS] $(notdir $(1))") && \
+	$(call ysr-display-left,"[$(CC) AS] $(notdir $(1))") && \
 	$(CC) $(ASFLAGS) $(all_CPPFLAGS) $(3) -c $(1) -o $(2) && \
-	$(call display-right,"done")
+	$(call ysr-display-right,"done")
 
 ##
 # link a c executable
@@ -114,9 +114,9 @@ compile-as-gcc= \
 # $(3): extra flags
 #
 link-c-gcc= \
-	$(call display-left,"[$(CC)] => $(notdir $(2))") && \
+	$(call ysr-display-left,"[$(CC)] => $(notdir $(2))") && \
 	$(CC) $(LDFLAGS) -o $(2) $(filter %.o,$(1)) $(filter %.a,$(1)) $(3) $(LFLAGS) && \
-	$(call display-right,"done")
+	$(call ysr-display-right,"done")
 
 ##
 # link a c++ executable
@@ -125,9 +125,9 @@ link-c-gcc= \
 # $(3): extra flags
 #
 link-c++-gcc= \
-	$(call display-left,"[$(CXX)] => $(notdir $(2))") && \
+	$(call ysr-display-left,"[$(CXX)] => $(notdir $(2))") && \
 	$(CXX) $(LDFLAGS) $(LDXXFLAGS) -o $(2) $(filter %.o,$(1)) $(filter %.a,$(1)) $(3) $(LFLAGS) && \
-	$(call display-right,"done")
+	$(call ysr-display-right,"done")
 
 ##
 # link a c bundle
@@ -136,9 +136,9 @@ link-c++-gcc= \
 # $(3): extra flags
 #
 link-c-bundle-gcc= \
-	$(call display-left,"[$(CC)] => $(notdir $(2))") && \
+	$(call ysr-display-left,"[$(CC)] => $(notdir $(2))") && \
 	$(CC) $(LDFLAGS) -o $(2) $(filter %.o,$(1)) $(filter %.a,$(1)) $(3) $(LFLAGS) && \
-	$(call display-right,"done")
+	$(call ysr-display-right,"done")
 
 ##
 # link a c bundle
@@ -147,9 +147,9 @@ link-c-bundle-gcc= \
 # $(3): extra flags
 #
 link-c++-bundle-gcc= \
-	$(call display-left,"[$(CXX)] => $(notdir $(2))") && \
+	$(call ysr-display-left,"[$(CXX)] => $(notdir $(2))") && \
 	$(CXX) $(LDFLAGS) $(LDXXFLAGS) -o $(2) $(filter %.o,$(1)) $(filter %.a,$(1)) $(3) $(LFLAGS) && \
-	$(call display-right,"done")
+	$(call ysr-display-right,"done")
 
 ##
 # archive object files into a lib
@@ -158,9 +158,9 @@ link-c++-bundle-gcc= \
 # $(3): extra flags
 #
 ar-lib= \
-	$(call display-left,"[$(AR)] => $(notdir $(2))") && \
+	$(call ysr-display-left,"[$(AR)] => $(notdir $(2))") && \
 	$(AR) crus $(3) $(2) $(1) && \
-	$(call display-right,"done")
+	$(call ysr-display-right,"done")
 
 # libraries use different linking methods:
 link-c-shared-gcc=$(call link-c-gcc,$(1),$(2),$(3))
@@ -205,15 +205,15 @@ $(DEST)/%.o: $(TOP)/%.cc $(DEST)/%.o.dep
 
 $(DEST)/%.o: $(TOP)/%.m $(DEST)/%.o.dep
 	@$(call require-directory,$(dir $@))
-	@$(call display-left,"$*.o.dep")
+	@$(call ysr-display-left,"$*.o.dep")
 	@$(call compile-objc-$(COMPILER_FAMILY),$<,$@,$($<_FLAGS))
-	@$(call display-right,"done")
+	@$(call ysr-display-right,"done")
 
 $(DEST)/%.o: $(TOP)/%.mm $(DEST)/%.o.dep
 	@$(call require-directory,$(dir $@))
-	@$(call display-left,"$*.o.dep")
+	@$(call ysr-display-left,"$*.o.dep")
 	@$(call compile-objcc-$(COMPILER_FAMILY),$<,$@,$($<_FLAGS))
-	@$(call display-right,"done")
+	@$(call ysr-display-right,"done")
 
 $(DEST)/%.o: $(TOP)/%.s $(DEST)/%.o.dep
 	@$(call compile-as-$(COMPILER_FAMILY),$<,$@,$($<_FLAGS))
@@ -259,54 +259,54 @@ $(DEST)/%.o.dep: $(DEST)/%.D
 	@$(SED) $(REMOVE_COMMENTS) $(REMOVE_TARGET) $(REMOVE_EXTRA_BACKSLASH) $(REMOVE_EMPTY_LINES) $(POSTFIX_LINES_WITH_COLON) $< >> $@
 	@echo "$@: " >> $@
 
-$(DEST)/%.D: DISPLAY_DISABLED=true
+$(DEST)/%.D: YSR_DISPLAY_DISABLED=true
 $(DEST)/%.D: CPPFLAGS+=-w -MM
 
 $(DEST)/%.D: %.c
 	@$(call require-directory,$(dir $@))
-	@$(call display-left,"[$(CC) C dep] $*.D")
+	@$(call ysr-display-left,"[$(CC) C dep] $*.D")
 	@$(CC) $(CSTD) $(call depflag-filter,$(CFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
 	@echo '#' $(CSTD) $(call depflag-filter,$(CFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) >> $@
-	@$(call display-right,"done")
+	@$(call ysr-display-right,"done")
 
 $(DEST)/%.D: $(DEST)/%.c
 	@$(call require-directory,$(dir $@))
-	@$(call display-left,"[$(CC) C dep] $*.D")
+	@$(call ysr-display-left,"[$(CC) C dep] $*.D")
 	@$(CC) $(CSTD) $(call depflag-filter,$(CFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
 	@echo '#' $(CSTD) $(call depflag-filter,$(CFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) >> $@
-	@$(call display-right,"done")
+	@$(call ysr-display-right,"done")
 
 $(DEST)/%.D: %.cpp
 	@$(call require-directory,$(dir $@))
-	@$(call display-left,"[$(CXX) C++ dep] $*.D")
+	@$(call ysr-display-left,"[$(CXX) C++ dep] $*.D")
 	@$(CXX) $(call depflag-filter,$(CXXFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
 	@echo '#' $(CSTD) $(call depflag-filter,$(CXXFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) >> $@
-	@$(call display-right,"done")
+	@$(call ysr-display-right,"done")
 
 $(DEST)/%.D: %.cc
 	@$(call require-directory,$(dir $@))
-	@$(call display-left,"[$(CXX) C++ dep] $*.D")
+	@$(call ysr-display-left,"[$(CXX) C++ dep] $*.D")
 	@$(CXX) $(call depflag-filter,$(CXXFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
 	@echo '#' $(CSTD) $(call depflag-filter,$(CXXFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) >> $@
-	@$(call display-right,"done")
+	@$(call ysr-display-right,"done")
 
 $(DEST)/%.D: %.s
 	@$(call require-directory,$(dir $@))
-	@$(call display-left,"[$(CC) AS dep] $*.D")
+	@$(call ysr-display-left,"[$(CC) AS dep] $*.D")
 	@$(CC) $(call depflag-filter,$(ASFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
-	@$(call display-right,"done")
+	@$(call ysr-display-right,"done")
 
 $(DEST)/%.D: %.m
 	@$(call require-directory,$(dir $@))
-	@$(call display-left,"[$(CXX) Obj-C dep] $*.D")
+	@$(call ysr-display-left,"[$(CXX) Obj-C dep] $*.D")
 	@$(CC) $(call depflag-filter,$(CFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
-	@$(call display-right,"done")
+	@$(call ysr-display-right,"done")
 
 $(DEST)/%.D: %.mm
 	@$(call require-directory,$(dir $@))
-	@$(call display-left,"[$(CXX) Obj-C dep] $*.D")
+	@$(call ysr-display-left,"[$(CXX) Obj-C dep] $*.D")
 	@$(CXX) $(call depflag-filter,$(CFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
-	@$(call display-right,"done")
+	@$(call ysr-display-right,"done")
 
 ifeq ($(ARCH),WIN32)
 $(DEST)/%.o.dep: %.rc

@@ -1,5 +1,5 @@
-ifndef scripts_functions_mk
-scripts_functions_mk=1
+ifndef ysr_lib_functions_mk
+ysr_lib_functions_mk=1
 
 ##
 # Find the first file found under the given list of paths
@@ -15,14 +15,6 @@ findfile = $(firstword $(wildcard $(1) $(addsuffix /$(1), $(2))))
 # param [0] = name of executable
 #
 pathsearch = $(call findfile,$(1),$(subst :, ,$(PATH)))
-
-##
-# function returning an executable
-#
-# param [0] = name of a variable containing an optional directory to find the executable in
-# param [1] = name of the executable
-#
-exists-or-translate=$(or $(call pathsearch,$(2)),$(if $($(1)),$(realpath $($(1))/$(2)),))
 
 ##
 # function validating the filename of an executable for the build platform
@@ -85,35 +77,7 @@ ifneq ($(findstring CYGWIN,$(HOST_SYSTEM)),)
 nativepath=$(shell cygpath -m $(1))
 endif
 
-
-##
-# perform a command (first argument) on any directory
-# that is not third-party or OUTPUT
-#
-# the directory is set as shell variable DIR
-#
-perform-shell=\
-	@for DIR in $(addprefix $(TOP)/,$(filter-out OUTPUT ide,$(notdir $(wildcard $(TOP)/*)))) ; \
-	do \
-	if [ -d $${DIR} ] ; \
-	then \
-		$(1) ; \
-	fi ; \
-	done
-
-
-## search for a given string $(1) in the dir
-search-string=$(call perform-shell,grep -r -e '$(1)' $${DIR})
-
 ## iso timestamp
 isotimestamp=$(shell date +%Y%m%d@%H%M%S)
-
-##
-# function to display a warning when the level is VERBOSE
-ifeq ($(VERBOSE),T)
-ln2-info=$(warning $1)
-else
-ln2-info=
-endif
 
 endif

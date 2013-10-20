@@ -38,26 +38,46 @@ include $(YSR.libdir)/functions/template-functions.mk
 #
 
 ##
-# These two functions take the name of a program as parameter, and
-# will build the appropriate rules using <program_name>_<suffix>.
+# These functions take the name of a program as parameter, and will
+# build the appropriate rules using <program_name>_<suffix>.
 #
 # Using:
 #
-# $(call mk-c-prog-rule,myprogram)
+# $(call ysr-add-c-prog,myprogram)
 #
 # will create rules myprogram, myprogram-run, myprogram-debug using
 # myprogram_OBJS and myprogram_REQUIRES to find the objects to build
 # and their dependencies, respectively.
 #
-mk-c-prog-rule=$(eval $(call mk-prog-rule-template,$(1),c,))
-mk-c++-prog-rule=$(eval $(call mk-prog-rule-template,$(1),c++,))
-mk-c-console-prog-rule=$(eval $(call mk-prog-rule-template,$(1),c,console))
-mk-c++-console-prog-rule=$(eval $(call mk-prog-rule-template,$(1),c++,console))
+
+##
+# Create a program based on the C runtime
+#
+# @param $(1) name of the program
+ysr-add-c-prog=$(eval $(call ysr-prv-prog-rule-template,$(1),c,))
+
+##
+# Create a program based on the C++ runtime
+#
+# @param $(1) name of the program
+ysr-add-c++-prog=$(eval $(call ysr-prv-prog-rule-template,$(1),c++,))
+
+##
+# Create a console program based on the C runtime
+#
+# @param $(1) name of the program
+ysr-add-c-console-prog=$(eval $(call ysr-prv-prog-rule-template,$(1),c,console))
+
+##
+# Create a console program based on the C++ runtime
+#
+# @param $(1) name of the program
+ysr-add-c++-console-prog=$(eval $(call ysr-prv-prog-rule-template,$(1),c++,console))
 
 ### PRIVATE IMPLEMENTATION #
 
 ##
-# mk-prog-rule-template : when 'evaled' will add rules to build the
+# ysr-prv-prog-rule-template : when 'evaled' will add rules to build the
 # provided "program"
 #
 # $(1) : name of the program
@@ -66,7 +86,7 @@ mk-c++-console-prog-rule=$(eval $(call mk-prog-rule-template,$(1),c++,console))
 #
 # requires <program_name>_OBJS <program_name>_DEPS <program_name>_REQUIRES
 
-define mk-prog-rule-template
+define ysr-prv-prog-rule-template
 
 ## The program
 
@@ -100,8 +120,8 @@ endif
 ###
 ## find out everything about the required modules and validate
 ## that they are ready to be included.
-$(1)_private_REQUIRES:=$$(sort $$(call walk-requires,$(1)))
-$$(foreach R,$$($(1)_private_REQUIRES),$$(call requires,$$(R),$(1),$(2)))
+$(1)_private_REQUIRES:=$$(call ysr-walk-requires,$(1))
+$$(call ysr-prv-requires-all,$$($(1)_private_REQUIRES),$(1),$(2))
 
 ## Uncomment to debug dependencies:
 ## $$(info $(1) = $$($(1)_private_REQUIRES))
@@ -112,7 +132,7 @@ $$(foreach R,$$($(1)_private_REQUIRES),$$(call requires,$$(R),$(1),$(2)))
 #
 # The core version of the variable are also appended
 #
-$(1)_import=$$(call prefixing-references,$$(1),GLOBAL $(1) $$($(1)_private_REQUIRES))
+$(1)_import=$$(call ysr-prefixing-references,$$(1),GLOBAL $(1) $$($(1)_private_REQUIRES))
 
 $(1)_all_DEPS:=$$(call $(1)_import,DEPS)
 $(1)_all_OBJS:=$$(call $(1)_import,OBJS)
@@ -166,7 +186,8 @@ $$($(1)_PROG): $$($(1)_all_OBJS)
 	@$$(call link-$(2)-$$(COMPILER_FAMILY),$$^,$$@,)
 
 $(1)-bundle: $$($(1)_PROG)
-	@$(YSR.libdir)/scripts/$(ARCH)/make-application-bundle.rb com.uucidl.ln2/$(1) $$($(1)_PROG) $$($(1)_all_SHLIBS) $$($(1)_all_DATAFILES)
+	@test -n "$$($(1)_BUNDLENAME)" || (echo 'You must configure a bundle name for $(1) with $(1)_BUNDLENAME!' && false)
+	@$(YSR.libdir)/scripts/$(ARCH)/make-application-bundle.rb $$($(1)_BUNDLENAME) $$($(1)_PROG) $$($(1)_all_SHLIBS) $$($(1)_all_DATAFILES)
 
 ifneq ($$($(1)_BUNDLE),)
 $(1): $(1)-bundle
@@ -241,26 +262,21 @@ $(1)-run-simple: $(1)
 	@$$($(1)_EXEC) $$($(1)_ARGS)
 
 $(1)-debug: $(1)
-	@[ "$(OTYPE)" == "DEBUG" ] || $(call display-interactive-warning,"'You are debugging yet OTYPE=$(OTYPE) (use $(MAKE) OTYPE=DEBUG instead).. symbols might not be available to the debugger.'")
+	@[ "$(OTYPE)" == "DEBUG" ] || $(call ysr-display-interactive-warning,"'You are debugging yet OTYPE=$(OTYPE) (use $(MAKE) OTYPE=DEBUG instead).. symbols might not be available to the debugger.'")
 	@$$($(1)-COPY_SHLIBS)
 	@($$($(1)_RUNENV) ; gdb --args $$($(1)_EXEC) $$($(1)_ARGS))
 
 $(1)-valgrind: $(1)
 	@$$($(1)-COPY_SHLIBS)
-	@($$($(1)_RUNENV) ; valgrind --suppressions=$(TOP)/scripts/valgrind.suppr --smc-check=all --leak-check=full --show-reachable=yes $$(VALGRIND_ARGS) $$($(1)_PROG) $$($(1)_ARGS))
+	@($$($(1)_RUNENV) ; valgrind --smc-check=all --leak-check=full --show-reachable=yes $$(VALGRIND_ARGS) $$($(1)_PROG) $$($(1)_ARGS))
 
 $(1)-depclean:
-	@$(call display-left,"[rm -f] *.o.dep *.D")
+	@$(call ysr-display-left,"[rm -f] *.o.dep *.D")
 	@rm -f $$($(1)_MKDEPALL)
-	@$(call display-right,"done")
-
-$(1)-splint-clean:
-	@rm -f $$($(1)_SPLINTS)
-
-$(1)-splint: $$($(1)_SPLINTS) $$($(1)_all_DEPS)
+	@$(call ysr-display-right,"done")
 
 $(1)-clean: $(1)-depclean
-	@rm -f $$($(1)_all_OBJS) $$($(1)_SPLINTS)
+	@rm -f $$($(1)_all_OBJS)
 
 $(1)-showdep:
 	@echo $$($(1)_MKDEP)
@@ -268,7 +284,7 @@ $(1)-showdep:
 clean: $(1)-clean
 depclean: $(1)-depclean
 
-.PHONY: $(1) $(1)-run $(1)-bundle $(1)-valgrind $(1)-splint $(1)-debug $(1)-clean $(1)-depclean
+.PHONY: $(1) $(1)-run $(1)-bundle $(1)-valgrind $(1)-debug $(1)-clean $(1)-depclean
 
 -include $$($(1)_MKDEP)
 
@@ -288,16 +304,16 @@ PROGRAM_MK_DESCRIBE-clean:=clean all objects and dependencies\\n\t\t(may be usef
 PROGRAM_MK_DESCRIBE-depclean:=clean the dependencies\\n\t\t(may be useful in order to rebuild the program)
 
 help-progs:
-	@$(echo-e) $(PROGRAM_MK_WELCOME)
-	@true $(foreach P,$(ALL_PROG_NAMES),&& $(echo-e) "\t$(P)")
+	@$(ysr-display-banner) $(PROGRAM_MK_WELCOME)
+	@true $(foreach P,$(ALL_PROG_NAMES),&& $(ysr-display-banner) "\t$(P)")
 	@echo
-	@$(echo-e) "$(PROGRAM_MK_WELCOME_RULES)"
-	@$(echo-e) "With rule amongst: $(PROGRAM_MK_RULES)"
+	@$(ysr-display-banner) "$(PROGRAM_MK_WELCOME_RULES)"
+	@$(ysr-display-banner) "With rule amongst: $(PROGRAM_MK_RULES)"
 	@echo
 
 help-rules-progs:
-	@$(echo-e) "$(PROGRAM_MK_WELCOME_RULES)"
-	@true $(foreach P,$(ALL_PROG_NAMES),&& $(echo-e) "   $(P) -- $(PROGRAM_MK_DESCRIBE-build)" $(foreach R,$(PROGRAM_MK_RULES),&& $(echo-e) "   $(P)-$(R) -- $(PROGRAM_MK_DESCRIBE-$(R))") && echo)
+	@$(ysr-display-banner) "$(PROGRAM_MK_WELCOME_RULES)"
+	@true $(foreach P,$(ALL_PROG_NAMES),&& $(ysr-display-banner) "   $(P) -- $(PROGRAM_MK_DESCRIBE-build)" $(foreach R,$(PROGRAM_MK_RULES),&& $(ysr-display-banner) "   $(P)-$(R) -- $(PROGRAM_MK_DESCRIBE-$(R))") && echo)
 	@echo
 
 .PHONY: help-progs help-rules-progs clean depclean all-progs

@@ -30,10 +30,32 @@ include $(YSR.libdir)/functions/template-functions.mk
 #
 # to use in programs.
 
-mk-c-sharedlib-rule=$(eval $(call mk-lib-rule-template,$(1),c,shared))
-mk-c++-sharedlib-rule=$(eval $(call mk-lib-rule-template,$(1),c++,shared))
-mk-c-staticlib-rule=$(eval $(call mk-lib-rule-template,$(1),c,static))
-mk-c++-staticlib-rule=$(eval $(call mk-lib-rule-template,$(1),c++,static))
+##
+# call these to create your library
+
+##
+# Create a C language shared library.
+#
+# @param $(1) name of the library
+ysr-add-c-lib-shared=$(eval $(call ysrprv-lib-rule-template,$(1),c,shared))
+
+##
+# Create a C++ language shared library.
+#
+# @param $(1) name of the library
+ysr-add-c++-lib-shared=$(eval $(call ysrprv-lib-rule-template,$(1),c++,shared))
+
+##
+# Create a C language static library.
+#
+# @param $(1) name of the library
+ysr-add-c-lib-static=$(eval $(call ysrprv-lib-rule-template,$(1),c,static))
+
+##
+# Create a C++ language static library.
+#
+# @param $(1) name of the library
+ysr-add-c++-lib-static=$(eval $(call ysrprv-lib-rule-template,$(1),c++,static))
 
 # only for OSX
 # $(1) library name for the bundle. Used to lookup variables.
@@ -44,11 +66,20 @@ mk-c++-staticlib-rule=$(eval $(call mk-lib-rule-template,$(1),c++,static))
 # will export
 # <library-name>_BUNDLE : location / name of the bundle
 #
-mk-c-bundle-rule=$(eval $(call mk-lib-rule-template,$(1),c,bundle))
-mk-c++-bundle-rule=$(eval $(call mk-lib-rule-template,$(1),c++,bundle))
 
 ##
-# mk-lib-rule-template : when 'evaled' will add rules to build the
+# Create a C language OSX bundle library
+# @param $(1) name of the bundle
+ysr-c-bundle-add=$(eval $(call ysrprv-lib-rule-template,$(1),c,bundle))
+
+##
+# Create a C++ language OSX bundle library
+# @param $(1) name of the bundle
+ysr-c++-bundle-add=$(eval $(call ysrprv-lib-rule-template,$(1),c++,bundle))
+
+##
+# @private
+# ysrprv-lib-rule-template : when 'evaled' will add rules to build the
 # provided "library"
 #
 # $(1) : name of the library
@@ -57,15 +88,15 @@ mk-c++-bundle-rule=$(eval $(call mk-lib-rule-template,$(1),c++,bundle))
 #
 # requires <library_name>_OBJS <library_name>_DEPS <library_name>_REQUIRES
 
-define mk-lib-rule-template
+define ysrprv-lib-rule-template
 
 $(1)_LIBNAME?=$(subst .,-,$(1))
 $(1)_LIB:=$$(call to-lib-$$(ARCH)-$(3),$$(DEST)/$(1)/$$($(1)_LIBNAME))
 $(1)_LIBDIR=$$(dir $$($(1)_LIB))
 
 ## find out everything about the required modules
-$(1)_private_REQUIRES:=$$(sort $$(call walk-requires,$(1)))
-$$(foreach R,$$($(1)_private_REQUIRES),$$(call requires,$$(R),$(1),$(2)))
+$(1)_private_REQUIRES:=$$(call ysr-walk-requires,$(1))
+$$(call ysr-prv-requires-all,$$($(1)_private_REQUIRES),$(1),$(2))
 
 ##
 # function importing variables from dependencies
@@ -73,7 +104,7 @@ $$(foreach R,$$($(1)_private_REQUIRES),$$(call requires,$$(R),$(1),$(2)))
 #
 # The core version of the variable are also appended
 #
-$(1)_import=$$(call prefixing-references,$$(1),GLOBAL $(1) $$($(1)_private_REQUIRES))
+$(1)_import=$$(call ysr-prefixing-references,$$(1),GLOBAL $(1) $$($(1)_private_REQUIRES))
 
 $(1)_all_DEPS:=$$(call $(1)_import,DEPS)
 $(1)_all_OBJS:=$$(call $(1)_import,OBJS)
@@ -181,16 +212,16 @@ LIBRARY_MK_DESCRIBE-clean:=clean all objects and dependencies\\n\t\t(may be usef
 LIBRARY_MK_DESCRIBE-depclean:=clean the dependencies\\n\t\t(may be useful in order to rebuild the library)
 
 help-libs:
-	@$(echo-e) $(LIBRARY_MK_WELCOME)
-	@true $(foreach P,$(ALL_LIB_NAMES),&& $(echo-e) "\t$(P)")
+	@$(ysr-display-banner) $(LIBRARY_MK_WELCOME)
+	@true $(foreach P,$(ALL_LIB_NAMES),&& $(ysr-display-banner) "\t$(P)")
 	@echo
-	@$(echo-e) "$(LIBRARY_MK_WELCOME_RULES)"
-	@$(echo-e) "With rule amongst: $(LIBRARY_MK_RULES)"
+	@$(ysr-display-banner) "$(LIBRARY_MK_WELCOME_RULES)"
+	@$(ysr-display-banner) "With rule amongst: $(LIBRARY_MK_RULES)"
 	@echo
 
 help-rules-libs:
-	@$(echo-e) "$(LIBRARY_MK_WELCOME_RULES)"
-	@true $(foreach P,$(ALL_LIB_NAMES),&& $(echo-e) "   $(P) -- $(LIBRARY_MK_DESCRIBE-build)" $(foreach R,$(LIBRARY_MK_RULES),&& $(echo-e) "   $(P)-$(R) -- $(LIBRARY_MK_DESCRIBE-$(R))") && echo)
+	@$(ysr-display-banner) "$(LIBRARY_MK_WELCOME_RULES)"
+	@true $(foreach P,$(ALL_LIB_NAMES),&& $(ysr-display-banner) "   $(P) -- $(LIBRARY_MK_DESCRIBE-build)" $(foreach R,$(LIBRARY_MK_RULES),&& $(ysr-display-banner) "   $(P)-$(R) -- $(LIBRARY_MK_DESCRIBE-$(R))") && echo)
 	@echo
 
 endif

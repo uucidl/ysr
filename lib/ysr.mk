@@ -4,7 +4,7 @@
 ##
 #
 # This file setups GNU Make and imports our templates & makefiles
-# 
+#
 # Per machine configuration flags are stored inside
 #		configs/<hostname>-config.mk
 #   See them as examples!
@@ -124,20 +124,6 @@ GLOBAL_INCLUDES=$(TOP)
 VPATH=$(TOP)
 
 all:
-
-DOXYGEN?=doxygen
-
-docs:
-	@echo "Rebuilding documentation"
-	@(cd $(TOP)/ide ; $(DOXYGEN) ln2.doxy)
-
-$(TOP)/ide/TAGS: require-etags
-	$(RM) "$@"
-	$(call perform-shell,find $${DIR} \( -name "*.mk" -o -name "Makefile" -o -name "*.c" -o -name "*.h" -o -name "*.hh" -o -name "*.cc" -o -name "*.cpp" \) -print0) | xargs -0 $(ETAGS) -a -o "$@"
-
-TAGS: $(TOP)/TAGS
-
-.PHONY: TAGS $(TOP)/TAGS
 
 HOST_CONFIG_MK=$(TOP)/ysr/$(HOST_NAME)-config.mk
 -include $(HOST_CONFIG_MK)
