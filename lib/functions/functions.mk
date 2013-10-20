@@ -1,5 +1,5 @@
-ifndef scripts_functions_mk
-scripts_functions_mk=1
+ifndef ysr_lib_functions_mk
+ysr_lib_functions_mk=1
 
 ##
 # Find the first file found under the given list of paths
