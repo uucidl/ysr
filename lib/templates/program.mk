@@ -186,7 +186,8 @@ $$($(1)_PROG): $$($(1)_all_OBJS)
 	@$$(call link-$(2)-$$(COMPILER_FAMILY),$$^,$$@,)
 
 $(1)-bundle: $$($(1)_PROG)
-	@$(YSR.libdir)/scripts/$(ARCH)/make-application-bundle.rb com.uucidl.ln2/$(1) $$($(1)_PROG) $$($(1)_all_SHLIBS) $$($(1)_all_DATAFILES)
+	@test -n "$$($(1)_BUNDLENAME)" || (echo 'You must configure a bundle name for $(1) with $(1)_BUNDLENAME!' && false)
+	@$(YSR.libdir)/scripts/$(ARCH)/make-application-bundle.rb $$($(1)_BUNDLENAME) $$($(1)_PROG) $$($(1)_all_SHLIBS) $$($(1)_all_DATAFILES)
 
 ifneq ($$($(1)_BUNDLE),)
 $(1): $(1)-bundle
