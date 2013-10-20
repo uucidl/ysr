@@ -274,13 +274,8 @@ $(1)-depclean:
 	@rm -f $$($(1)_MKDEPALL)
 	@$(call ysr-display-right,"done")
 
-$(1)-splint-clean:
-	@rm -f $$($(1)_SPLINTS)
-
-$(1)-splint: $$($(1)_SPLINTS) $$($(1)_all_DEPS)
-
 $(1)-clean: $(1)-depclean
-	@rm -f $$($(1)_all_OBJS) $$($(1)_SPLINTS)
+	@rm -f $$($(1)_all_OBJS)
 
 $(1)-showdep:
 	@echo $$($(1)_MKDEP)
@@ -288,7 +283,7 @@ $(1)-showdep:
 clean: $(1)-clean
 depclean: $(1)-depclean
 
-.PHONY: $(1) $(1)-run $(1)-bundle $(1)-valgrind $(1)-splint $(1)-debug $(1)-clean $(1)-depclean
+.PHONY: $(1) $(1)-run $(1)-bundle $(1)-valgrind $(1)-debug $(1)-clean $(1)-depclean
 
 -include $$($(1)_MKDEP)
 
