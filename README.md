@@ -89,3 +89,21 @@ That is, if your machine is named "edge" then the configuration file can be crea
   ysr/edge-config.mk
 
 The file must be consistent with the name returned by the hostname command.
+
+# Some information about its operation
+
+ysr recurses until the top of the source tree is found. This top of
+the tree can be set by adding a project.ysr file.
+
+ysr then:
+- finds out the architecture (OS, type of CPU) of the host system.
+- imports the rule set for the GCC compiler
+- imports some utilitary functions
+- imports templates for program and libraries
+- defines variable TOP, the top of the source tree
+- defines variable DEST, the top of the output tree
+- defines and uses variable OTYPE (shorthand for object type) which can be DEBUG, TEST or RELEASE.
+
+Any built program will end up under the $(DEST) directory. This
+directory is different for each object type, in order not to mix
+release binaries and debugging binaries
