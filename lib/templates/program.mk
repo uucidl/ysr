@@ -120,7 +120,7 @@ endif
 ###
 ## find out everything about the required modules and validate
 ## that they are ready to be included.
-$(1)_private_REQUIRES:=$$(call ysr-walk-requires,$(1))
+$(1)_private_REQUIRES:=$$(call ysr-prv-walk-requires,$(1))
 $$(call ysr-prv-requires-all,$$($(1)_private_REQUIRES),$(1),$(2))
 
 ## Uncomment to debug dependencies:

@@ -95,7 +95,7 @@ $(1)_LIB:=$$(call to-lib-$$(ARCH)-$(3),$$(DEST)/$(1)/$$($(1)_LIBNAME))
 $(1)_LIBDIR=$$(dir $$($(1)_LIB))
 
 ## find out everything about the required modules
-$(1)_private_REQUIRES:=$$(call ysr-walk-requires,$(1))
+$(1)_private_REQUIRES:=$$(call ysr-prv-walk-requires,$(1))
 $$(call ysr-prv-requires-all,$$($(1)_private_REQUIRES),$(1),$(2))
 
 ##

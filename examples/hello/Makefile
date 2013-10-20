@@ -24,6 +24,6 @@ helloworld_CFLAGS=-ffast-math
 ### example 3.2: how to define preprocessor constants
 helloworld_DEFINES=VALUE="\"Hello_from_CPP\""
 
-$(call ysr-add-c-prog,helloworld)
+$(call ysr-add-c-console-prog,helloworld)
 
 all: help
