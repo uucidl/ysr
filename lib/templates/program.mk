@@ -267,7 +267,7 @@ $(1)-debug: $(1)
 
 $(1)-valgrind: $(1)
 	@$$($(1)-COPY_SHLIBS)
-	@($$($(1)_RUNENV) ; valgrind --suppressions=$(TOP)/scripts/valgrind.suppr --smc-check=all --leak-check=full --show-reachable=yes $$(VALGRIND_ARGS) $$($(1)_PROG) $$($(1)_ARGS))
+	@($$($(1)_RUNENV) ; valgrind --smc-check=all --leak-check=full --show-reachable=yes $$(VALGRIND_ARGS) $$($(1)_PROG) $$($(1)_ARGS))
 
 $(1)-depclean:
 	@$(call ysr-display-left,"[rm -f] *.o.dep *.D")
