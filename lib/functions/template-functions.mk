@@ -8,7 +8,7 @@ ysr_lib_template_functions=1
 # list (this is to find all the modules required by modules the
 # program itself required.
 
-ysr-prv-walk-requires=$(sort $(foreach s,$($(1)_REQUIRES),$(s) $(call walk-requires,$(s))))
+ysr-prv-walk-requires=$(sort $(foreach s,$($(1)_REQUIRES),$(s) $(call ysr-prv-walk-requires,$(s))))
 
 ##
 # verify that the dependency has been loaded
