@@ -70,12 +70,12 @@ ysr-add-c++-lib-static=$(eval $(call ysrprv-lib-rule-template,$(1),c++,static))
 ##
 # Create a C language OSX bundle library
 # @param $(1) name of the bundle
-ysr-c-bundle-add=$(eval $(call ysrprv-lib-rule-template,$(1),c,bundle))
+ysr-add-c-bundle=$(eval $(call ysrprv-lib-rule-template,$(1),c,bundle))
 
 ##
 # Create a C++ language OSX bundle library
 # @param $(1) name of the bundle
-ysr-c++-bundle-add=$(eval $(call ysrprv-lib-rule-template,$(1),c++,bundle))
+ysr-add-c++-bundle=$(eval $(call ysrprv-lib-rule-template,$(1),c++,bundle))
 
 ##
 # @private
