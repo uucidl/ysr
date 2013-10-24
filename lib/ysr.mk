@@ -130,7 +130,7 @@ HOST_CONFIG_MK=$(TOP)/ysr/$(HOST_NAME)-config.mk
 
 include $(YSR.libdir)/functions/functions.mk
 include $(YSR.libdir)/languages/gcc/rules.mk
-include $(YSR.libdir)/languages/gcc/flags.mk
+include $(YSR.libdir)/languages/gcc/profile.mk
 
 ##
 # helps you define rules for making programs.
