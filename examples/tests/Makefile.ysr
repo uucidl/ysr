@@ -1,0 +1,4 @@
+include ysr.mk
+
+all:
+	$(warning Using make: $(shell $(YSR.make) --version))
