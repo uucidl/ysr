@@ -5,12 +5,9 @@ include $(YSR.libdir)/templates/program.mk
 include $(YSR.libdir)/templates/library.mk
 
 help-prologue:
-	@$(ysr-display-banner) "Welcome to project: $(YSR.project.name)"
-	@echo
-	@$(ysr-display-banner) "For a complete list of rules:\\n\\t$(MAKE) help-rules"
-	@echo
-	@$(ysr-display-banner) "Documentation may be found at $(YSR.project.dest.docs)/docs/api"
-	@echo
+	@$(ysr-display-banner) "\nWelcome to project: $(YSR.project.name)"
+	@$(ysr-display-banner) "\nFor a complete list of rules:\n\n\t$(MAKE) help-rules\n"
+	@$(ysr-display-banner) "\nDocumentation may be found at $(YSR.project.dest.docs)/docs/api\n"
 
 help:  help-prologue help-progs help-libs
 

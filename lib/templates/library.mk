@@ -203,25 +203,22 @@ depclean: $(1)-depclean
 
 endef
 
-LIBRARY_MK_WELCOME:="\\nA number of libraries have been defined for this project:\\n"
+LIBRARY_MK_WELCOME:=A number of libraries have been defined for this project:
 LIBRARY_MK_WELCOME_RULES:=Use the following rules: <lib-name>-<rule>
 
 LIBRARY_MK_RULES:=clean depclean showdep
 LIBRARY_MK_DESCRIBE-build:=build the library
-LIBRARY_MK_DESCRIBE-clean:=clean all objects and dependencies\\n\t\t(may be useful in order to rebuild the library)
-LIBRARY_MK_DESCRIBE-depclean:=clean the dependencies\\n\t\t(may be useful in order to rebuild the library)
+LIBRARY_MK_DESCRIBE-clean:=clean all objects and dependencies\n\t\t(may be useful in order to rebuild the library)
+LIBRARY_MK_DESCRIBE-depclean:=clean the dependencies\n\t\t(may be useful in order to rebuild the library)
 
 help-libs:
-	@$(ysr-display-banner) $(LIBRARY_MK_WELCOME)
-	@true $(foreach P,$(ALL_LIB_NAMES),&& $(ysr-display-banner) "\t$(P)")
-	@echo
-	@$(ysr-display-banner) "$(LIBRARY_MK_WELCOME_RULES)"
-	@$(ysr-display-banner) "With rule amongst: $(LIBRARY_MK_RULES)"
-	@echo
+	@$(ysr-display-banner) "\n$(LIBRARY_MK_WELCOME)\n"
+	@true $(foreach P,$(ALL_LIB_NAMES),&& $(ysr-display-banner) "\n\t$(P)")
+	@$(ysr-display-banner) "\n\n$(LIBRARY_MK_WELCOME_RULES)"
+	@$(ysr-display-banner) "\nWith rule amongst: $(LIBRARY_MK_RULES)\n"
 
 help-rules-libs:
-	@$(ysr-display-banner) "$(LIBRARY_MK_WELCOME_RULES)"
-	@true $(foreach P,$(ALL_LIB_NAMES),&& $(ysr-display-banner) "   $(P) -- $(LIBRARY_MK_DESCRIBE-build)" $(foreach R,$(LIBRARY_MK_RULES),&& $(ysr-display-banner) "   $(P)-$(R) -- $(LIBRARY_MK_DESCRIBE-$(R))") && echo)
-	@echo
+	@$(ysr-display-banner) "\n$(LIBRARY_MK_WELCOME_RULES)\n"
+	@true $(foreach P,$(ALL_LIB_NAMES),&& $(ysr-display-banner) "\n\t$(P) -- $(LIBRARY_MK_DESCRIBE-build)" $(foreach R,$(LIBRARY_MK_RULES),&& $(ysr-display-banner) "\n\t$(P)-$(R) -- $(LIBRARY_MK_DESCRIBE-$(R))") && $(ysr-display-banner) "\n")
 
 endif
