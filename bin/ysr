@@ -68,6 +68,7 @@ MAKEOPTS+=" ${PARALLISM} ${INCLUDES}"
 MAKEOPTS+=" YSR.libdir="${YSR_lib}""
 MAKEOPTS+=" YSR.bin="$0""
 MAKEOPTS+=" YSR.project.file="${YSR_project_file}""
+MAKEOPTS+=" YSR.make="${YSR_make_command}""
 
 if ${YSR_show_dont_do}; then
     show=echo
