@@ -5,7 +5,7 @@ thirdparty_gcc_profile_mk=1
 
 CSTD=-std=c99
 GCCFLAGS+=-Wall -Wextra -Winit-self -Wno-undef -Wno-unused
-CC_VERSION:=$(strip $(shell PATH="$(PATH)" sh $(YSR.libdir)/scripts/cc-version.sh "$(CC)"))
+CC_VERSION:=$(strip $(shell $(YSR.libdir)/scripts/cc-version.sh "$(CC)"))
 ifeq ($(CC_VERSION),)
 $(error "Could not find out exact gcc version (Using '$(CC)').")
 endif
