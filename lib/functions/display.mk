@@ -1,7 +1,7 @@
 ifndef ysr_lib_display_mk
 ysr_lib_display_mk=1
 
-ifneq (,$(findstring xterm,$(TERM)))
+ifneq (,$(findstring xterm,$(TERM))$(findstring cygwin,$(TERM)))
 # the terminal is a xterm like: use colors and positionning
 YSR_DISPLAY_COLS:=73
 YSR_DISPLAY_ANSI_COLORSET:=\x1B[1m
