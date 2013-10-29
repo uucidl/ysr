@@ -186,7 +186,7 @@ $$($(1)_PROG): $$($(1)_all_OBJS)
 	@$$(call link-$(2)-$$(COMPILER_FAMILY),$$^,$$@,)
 
 $(1)-bundle: $$($(1)_PROG)
-	@test -n "$$($(1)_BUNDLENAME)" || (echo 'You must configure a bundle name for $(1) with $(1)_BUNDLENAME!' && false)
+	@test -n "$$($(1)_BUNDLENAME)" || ($(ysr-display-banner) 'You must configure a bundle name for $(1) with $(1)_BUNDLENAME!\n' && false)
 	@$(YSR.libdir)/scripts/$(ARCH)/make-application-bundle.rb $$($(1)_BUNDLENAME) $$($(1)_PROG) $$($(1)_all_SHLIBS) $$($(1)_all_DATAFILES)
 
 ifneq ($$($(1)_BUNDLE),)
@@ -234,11 +234,11 @@ $(1)_REPORTFILE:=$(DEST)/reports/$(1)-report-$$(call isotimestamp)-$$($(1)_RUNTI
 # variable
 $(1)-run: $(1)
 	@$$(call require-directory,$$(dir $$($(1)_REPORTFILE)))
-	@echo "* Testing $(1)"
+	@$(ysr-display-banner) "* Testing $(1)\n"
 # copy win32 dlls into the destination
-	@echo "Copying shared libraries:"
+	@$(ysr-display-banner) "Copying shared libraries:\n"
 	@true $$(foreach D,$$($(1)_all_SHLIBS),; cp -f $$(D) $$(dir $$($(1)_PROG)))
-	@echo "Running:"
+	@$(ysr-display-banner) "Running:\n"
 	@(exec 3>&1 ; RC=$$$$(exec 4>&1; { \
 		export PP=$$($(1)_EXEC_PATH) ; \
 		export HH=$(DEST)/$(1) ; \
@@ -256,7 +256,7 @@ $(1)-COPY_SHLIBS=true $$(foreach D,$$($(1)_all_SHLIBS),; cp -f $$(D) $$(dir $$($
 ##
 # simple version of the above (just running the program)
 $(1)-run-simple: $(1)
-	@echo "* Testing $(1)"
+	@$(ysr-display-banner) "* Testing $(1)\n"
 	@$$($(1)-COPY_SHLIBS)
 	@$$($(1)_RUNENV)
 	@$$($(1)_EXEC) $$($(1)_ARGS)
@@ -279,7 +279,7 @@ $(1)-clean: $(1)-depclean
 	@rm -f $$($(1)_all_OBJS)
 
 $(1)-showdep:
-	@echo $$($(1)_MKDEP)
+	@$(ysr-display-banner) $$($(1)_MKDEP)
 
 clean: $(1)-clean
 depclean: $(1)-depclean
@@ -292,7 +292,7 @@ all-progs: $$($(1)_PROG)
 
 endef
 
-PROGRAM_MK_WELCOME:="\\nA number of programs have been defined for this project:\\n"
+PROGRAM_MK_WELCOME:=* Programs defined for this project:
 PROGRAM_MK_WELCOME_RULES:=Use the following rules: <program-name>-<rule>
 
 PROGRAM_MK_RULES:=run debug valgrind clean depclean showdep
@@ -300,21 +300,18 @@ PROGRAM_MK_DESCRIBE-build:=build the program
 PROGRAM_MK_DESCRIBE-run:=run
 PROGRAM_MK_DESCRIBE-debug:=debug
 PROGRAM_MK_DESCRIBE-valgrind:=use the valgrind tool to find memory leaks
-PROGRAM_MK_DESCRIBE-clean:=clean all objects and dependencies\\n\t\t(may be useful in order to rebuild the program)
-PROGRAM_MK_DESCRIBE-depclean:=clean the dependencies\\n\t\t(may be useful in order to rebuild the program)
+PROGRAM_MK_DESCRIBE-clean:=clean all objects and dependencies\n\t\t(may be useful in order to rebuild the program)
+PROGRAM_MK_DESCRIBE-depclean:=clean the dependencies\n\t\t(may be useful in order to rebuild the program)
 
 help-progs:
-	@$(ysr-display-banner) $(PROGRAM_MK_WELCOME)
-	@true $(foreach P,$(ALL_PROG_NAMES),&& $(ysr-display-banner) "\t$(P)")
-	@echo
-	@$(ysr-display-banner) "$(PROGRAM_MK_WELCOME_RULES)"
-	@$(ysr-display-banner) "With rule amongst: $(PROGRAM_MK_RULES)"
-	@echo
+	@$(ysr-display-banner) "\n$(PROGRAM_MK_WELCOME)\n"
+	@true $(foreach P,$(ALL_PROG_NAMES),&& $(ysr-display-banner) "\n\t$(P)")
+	@$(ysr-display-banner) "\n\n$(PROGRAM_MK_WELCOME_RULES)"
+	@$(ysr-display-banner) "\nWith rule amongst: $(PROGRAM_MK_RULES)\n"
 
 help-rules-progs:
-	@$(ysr-display-banner) "$(PROGRAM_MK_WELCOME_RULES)"
-	@true $(foreach P,$(ALL_PROG_NAMES),&& $(ysr-display-banner) "   $(P) -- $(PROGRAM_MK_DESCRIBE-build)" $(foreach R,$(PROGRAM_MK_RULES),&& $(ysr-display-banner) "   $(P)-$(R) -- $(PROGRAM_MK_DESCRIBE-$(R))") && echo)
-	@echo
+	@$(ysr-display-banner) "\n$(PROGRAM_MK_WELCOME_RULES)\n"
+	@true $(foreach P,$(ALL_PROG_NAMES),&& $(ysr-display-banner) "\n\t$(P) -- $(PROGRAM_MK_DESCRIBE-build)" $(foreach R,$(PROGRAM_MK_RULES),&& $(ysr-display-banner) "\n\t$(P)-$(R) -- $(PROGRAM_MK_DESCRIBE-$(R))") && $(ysr-display-banner) "\n")
 
 .PHONY: help-progs help-rules-progs clean depclean all-progs
 

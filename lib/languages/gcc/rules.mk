@@ -257,7 +257,7 @@ POSTFIX_LINES_WITH_COLON=$(SED_EXPR) 's/$$/ :/'
 $(DEST)/%.o.dep: $(DEST)/%.D
 	@$(SED) $(SED_EXPR) 's,^$(SED_LPAREN).$(SED_PLUS)$(SED_RPAREN)\.o[ :]$(SED_PLUS),$(DEST)/$*\.o $@ : $(YSR.libdir)/languages/gcc/profile.mk ,g' $< > $@
 	@$(SED) $(REMOVE_COMMENTS) $(REMOVE_TARGET) $(REMOVE_EXTRA_BACKSLASH) $(REMOVE_EMPTY_LINES) $(POSTFIX_LINES_WITH_COLON) $< >> $@
-	@echo "$@: " >> $@
+	@$(ysr-display-banner) "$@: \n" >> $@
 
 $(DEST)/%.D: YSR_DISPLAY_DISABLED=true
 $(DEST)/%.D: CPPFLAGS+=-w -MM
@@ -266,28 +266,28 @@ $(DEST)/%.D: %.c
 	@$(call require-directory,$(dir $@))
 	@$(call ysr-display-left,"[$(CC) C dep] $*.D")
 	@$(CC) $(CSTD) $(call depflag-filter,$(CFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
-	@echo '#' $(CSTD) $(call depflag-filter,$(CFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) >> $@
+	@$(ysr-display-banner) '#%s\n' "$(CSTD) $(call depflag-filter,$(CFLAGS)) $(all_CPPFLAGS) $($<_FLAGS)" >> $@
 	@$(call ysr-display-right,"done")
 
 $(DEST)/%.D: $(DEST)/%.c
 	@$(call require-directory,$(dir $@))
 	@$(call ysr-display-left,"[$(CC) C dep] $*.D")
 	@$(CC) $(CSTD) $(call depflag-filter,$(CFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
-	@echo '#' $(CSTD) $(call depflag-filter,$(CFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) >> $@
+	@$(ysr-display-banner) '#%s\n' "$(CSTD) $(call depflag-filter,$(CFLAGS)) $(all_CPPFLAGS) $($<_FLAGS)" >> $@
 	@$(call ysr-display-right,"done")
 
 $(DEST)/%.D: %.cpp
 	@$(call require-directory,$(dir $@))
 	@$(call ysr-display-left,"[$(CXX) C++ dep] $*.D")
 	@$(CXX) $(call depflag-filter,$(CXXFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
-	@echo '#' $(CSTD) $(call depflag-filter,$(CXXFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) >> $@
+	@$(ysr-display-banner) '#%s\n' "$(CSTD) $(call depflag-filter,$(CXXFLAGS)) $(all_CPPFLAGS) $($<_FLAGS)" >> $@
 	@$(call ysr-display-right,"done")
 
 $(DEST)/%.D: %.cc
 	@$(call require-directory,$(dir $@))
 	@$(call ysr-display-left,"[$(CXX) C++ dep] $*.D")
 	@$(CXX) $(call depflag-filter,$(CXXFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
-	@echo '#' $(CSTD) $(call depflag-filter,$(CXXFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) >> $@
+	@$(ysr-display-banner) '#%s\n' "$(CSTD) $(call depflag-filter,$(CXXFLAGS)) $(all_CPPFLAGS) $($<_FLAGS)" >> $@
 	@$(call ysr-display-right,"done")
 
 $(DEST)/%.D: %.s
@@ -310,7 +310,7 @@ $(DEST)/%.D: %.mm
 
 ifeq ($(ARCH),WIN32)
 $(DEST)/%.o.dep: %.rc
-	@echo "" > $@
+	@$(ysr-display-banner) "\n" > $@
 
 $(DEST)/%.o: %.rc
 	@$(call require-directory,$(dir $@))
