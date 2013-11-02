@@ -22,6 +22,8 @@ function seekProjectRec()
 ##
 # Argument processing
 
+THIS=$(printf '%s' $0 | sed -e 's/\\/\//g')
+
 ##
 # load configuration file
 #
@@ -34,7 +36,7 @@ YSR_rc="${HOME}/.ysrrc"
 #
 
 YSR_cpu_cores=${YSR_cpu_cores:-1}
-YSR_lib=${YSR_lib:-$(dirname $(dirname $0))/lib}
+YSR_lib=${YSR_lib:-$(dirname $(dirname $THIS))/lib}
 YSR_show_dont_do=${YSR_show_dont_do:-false}
 YSR_make_command=${YSR_make_command:-make}
 
