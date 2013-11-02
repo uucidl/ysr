@@ -266,28 +266,24 @@ $(DEST)/%.D: %.c
 	@$(call require-directory,$(dir $@))
 	@$(call ysr-display-left,"[$(CC) C dep] $*.D")
 	@$(CC) $(CSTD) $(call depflag-filter,$(CFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
-	@$(ysr-display-banner) '#%s\n' "$(CSTD) $(call depflag-filter,$(CFLAGS)) $(all_CPPFLAGS) $($<_FLAGS)" >> $@
 	@$(call ysr-display-right,"done")
 
 $(DEST)/%.D: $(DEST)/%.c
 	@$(call require-directory,$(dir $@))
 	@$(call ysr-display-left,"[$(CC) C dep] $*.D")
 	@$(CC) $(CSTD) $(call depflag-filter,$(CFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
-	@$(ysr-display-banner) '#%s\n' "$(CSTD) $(call depflag-filter,$(CFLAGS)) $(all_CPPFLAGS) $($<_FLAGS)" >> $@
 	@$(call ysr-display-right,"done")
 
 $(DEST)/%.D: %.cpp
 	@$(call require-directory,$(dir $@))
 	@$(call ysr-display-left,"[$(CXX) C++ dep] $*.D")
 	@$(CXX) $(call depflag-filter,$(CXXFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
-	@$(ysr-display-banner) '#%s\n' "$(CSTD) $(call depflag-filter,$(CXXFLAGS)) $(all_CPPFLAGS) $($<_FLAGS)" >> $@
 	@$(call ysr-display-right,"done")
 
 $(DEST)/%.D: %.cc
 	@$(call require-directory,$(dir $@))
 	@$(call ysr-display-left,"[$(CXX) C++ dep] $*.D")
 	@$(CXX) $(call depflag-filter,$(CXXFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
-	@$(ysr-display-banner) '#%s\n' "$(CSTD) $(call depflag-filter,$(CXXFLAGS)) $(all_CPPFLAGS) $($<_FLAGS)" >> $@
 	@$(call ysr-display-right,"done")
 
 $(DEST)/%.D: %.s
