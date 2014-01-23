@@ -63,7 +63,6 @@ endif
 
 -include $(YSR.project.file)
 
-$(info Using project file: $(YSR.project.file), TOP is $(TOP))
 YSR.project.name?="Unnamed"
 
 # Now we are trying to find out on which architecture (OS/CPU
@@ -152,3 +151,5 @@ GLOBAL_DEFINES+=BUILD_DESC="\"$(BUILD_DESC)\""
 GLOBAL_DEFINES+=ARCH_IS_$(ARCH)
 GLOBAL_DEFINES+=OTYPE_IS_$(OTYPE)
 GLOBAL_DEFINES+=TOP=$(call nativepath,$(TOP))
+
+$(info Using project file: $(YSR.project.file), TOP is `$(TOP)', DEST is `$(DEST)')
