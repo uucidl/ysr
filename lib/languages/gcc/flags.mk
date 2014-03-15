@@ -11,3 +11,5 @@ CXXFLAGS_dso=
 else
 CXXFLAGS_dso=-fvisibility=default
 endif
+
+endif
