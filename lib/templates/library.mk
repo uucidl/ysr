@@ -175,7 +175,7 @@ $(1)_BUNDLE_EXT?=.component
 $(1)_BUNDLE:=$$($(1)_LIB)$$($(1)_BUNDLE_EXT)
 
 $(1)-bundle: $$($(1)_LIB)
-	$(TOP)/scripts/$(ARCH)/make-library-bundle.rb $$($(1)_BUNDLE_PACKAGE) $$($(1)_LIB) $$($(1)_BUNDLE_EXT) $$($(1)_all_SHLIBS) $$($(1)_all_DATAFILES)
+	$(YSR.libdir)/scripts/$(ARCH)/make-library-bundle.rb $$($(1)_BUNDLE_PACKAGE) $$($(1)_LIB) $$($(1)_BUNDLE_EXT) $$($(1)_all_SHLIBS) $$($(1)_all_DATAFILES)
 
 $(1): $(1)-bundle
 else
