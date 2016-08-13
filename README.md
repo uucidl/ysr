@@ -15,9 +15,9 @@ It imposes a structure to all programs using it, and offers the following servic
 
 Target platforms are:
 
-* WIN32 (mingw32)
-* MACOSX
-* LINUX
+* WIN32 (mingw32/gcc)
+* MACOSX (clang/gcc)
+* LINUX (gcc)
 
 # Requirements
 	GNU Bash
