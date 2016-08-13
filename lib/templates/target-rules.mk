@@ -1,6 +1,7 @@
 ifndef target_rules_mk
 target_rules_mk=1
 
+include $(YSR.libdir)/functions/display.mk
 include $(YSR.libdir)/templates/program.mk
 include $(YSR.libdir)/templates/library.mk
 
