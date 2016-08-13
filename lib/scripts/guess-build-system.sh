@@ -12,10 +12,10 @@ UNAME_SYSTEM=`(uname -s) 2>/dev/null`  || UNAME_SYSTEM=unknown
 UNAME_VERSION=`(uname -v) 2>/dev/null` || UNAME_VERSION=unknown
 
 case "${UNAME_MACHINE}:${UNAME_SYSTEM}:${UNAME_RELEASE}:${UNAME_VERSION}" in
-    i*:MINGW*:*)
+    *:MINGW*:*)
         echo 'WIN32'
         exit 0 ;;
-    i*:CYGWIN*:*)
+    *:CYGWIN*:*)
 	echo 'WIN32 CYGWIN'
 	exit 0 ;;
     *:Darwin:*:*)
