@@ -4,6 +4,7 @@ thirdparty_gcc_profile_mk=1
 # This stuff is here for now but shall be moved later (it's specific to gcc)
 
 CSTD=-std=c99
+CXXSTD=-std=c++11
 GCCFLAGS+=-Wall -Wextra -Winit-self -Wno-undef -Wno-unused
 CC_VERSION:=$(strip $(shell $(YSR.libdir)/scripts/cc-version.sh "$(CC)"))
 

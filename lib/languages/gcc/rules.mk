@@ -69,7 +69,7 @@ compile-c-gcc= \
 #
 compile-c++-gcc= \
 	$(call ysr-display-left,"[$(CXX) C++] $(notdir $(1))") && \
-	$(CXX) $(CXXFLAGS) $(OFLAGS) $(all_CPPFLAGS) $(3) -c $(1) -o $(2) && \
+	$(CXX) $(CXXSTD) $(CXXFLAGS) $(OFLAGS) $(all_CPPFLAGS) $(3) -c $(1) -o $(2) && \
 	$(call ysr-display-right,"done")
 
 ##
