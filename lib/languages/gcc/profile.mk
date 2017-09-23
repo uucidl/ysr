@@ -5,7 +5,7 @@ thirdparty_gcc_profile_mk=1
 
 CSTD=-std=c99
 CXXSTD=-std=c++11
-GCCFLAGS+=-Wall -Wextra -Winit-self -Wno-undef -Wno-unused
+GCCFLAGS+=-Wall -Wextra -Winit-self -Wno-undef -Wno-unused -Wno-unused-parameter
 CC_VERSION:=$(strip $(shell $(YSR.libdir)/scripts/cc-version.sh "$(CC)"))
 
 ifeq ($(CC_VERSION),)
@@ -25,7 +25,11 @@ GLOBAL_LIBS:=m
 
 ifneq ($(or $(findstring DEBUG,$(OTYPE)),$(findstring TEST,$(OTYPE))),)
 GLOBAL_OFLAGS+=-g
+ifeq ($(ARCH),MACOSX)
+GLOBAL_OFLAGS+=-glldb -g3
+else
 GLOBAL_OFLAGS+=-ggdb -g3
+endif
 
 # helps with debugging
 GLOBAL_OFLAGS+=-fno-inline
