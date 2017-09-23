@@ -42,7 +42,7 @@ YSR_make_command=${YSR_make_command:-make}
 
 [ -d "${YSR_lib}" ] || die "Cannot find library directory: ${YSR_lib}"
 
-YSR_project_file=`seekProjectRec`
+YSR_project_file=$(echo $(pwd)/$(seekProjectRec))
 
 ##
 # setup make execution
