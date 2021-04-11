@@ -1,0 +1,4 @@
+# bash scripts should not be converted.
+*.sh text eof=lf
+bin/ysr text eof=lf
+
