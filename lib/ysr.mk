@@ -71,9 +71,31 @@ YSR.project.name?="Unnamed"
 # ARCH represents the software/hardware architecture (LINUX, WIN32, MACOSX)
 # CPU  represents the cpu (i386, PENTIUM, PENTIUMPRO, x86_64, POWERPC, EE)
 #
+# Yes, I know ARCH is a bad name for what is effectively the software
+# platform / operating system.
+
+ifeq ($(OS),Windows_NT)
+
+  ## the OS variable is present by default on Windows:
+  HOST_SYSTEM:=WIN32
+  HOST_ARCH:=WIN32
+
+  ## and comes with another variable PROCESSOR_ARCHITECTURE which we can
+  ## use to find out the processor type:
+  ifeq ($(PROCESSOR_ARCHITECTURE),AMD64)
+  HOST_CPU:=x86_64
+  endif
+  ifeq ($(PROCESSOR_ARCHITECTURE),x86)
+  HOST_CPU:=i386
+  endif
+
+else
+## otherwise we presume you have some sort of posix system where we can run the
+## shell scripts:
 HOST_SYSTEM:=$(shell sh $(YSR.libdir)/scripts/guess-build-system.sh)
 HOST_ARCH:=$(firstword $(HOST_SYSTEM))
 HOST_CPU:=$(shell sh $(YSR.libdir)/scripts/guess-build-cpu.sh)
+endif
 HOST_NAME:=$(shell hostname)
 
 ifeq ($(HOST_NAME),,)
