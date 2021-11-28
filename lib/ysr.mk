@@ -34,6 +34,13 @@ ifneq ($(eval_is_available),T)
 $(error GNU Make 3.80 at least is required)
 endif
 
+# we make use of the secondary expansion feature to create destination directories automatically.
+ifneq ($(filter second-expansion,$(.FEATURES)),second-expansion)
+$(error GNU Make 3.81 at least is required)
+endif
+
+.SECONDEXPANSION:
+
 YSR.libdir=$(realpath $(YSR.libdir))
 MAKE:=$(YSR.bin)
 

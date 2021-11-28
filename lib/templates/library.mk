@@ -163,8 +163,7 @@ $$($(1)_MKDEP): INCLUDES=$$($(1)_all_INCLUDES)
 $$($(1)_MKDEP): DEFINES=$$($(1)_all_DEFINES)
 
 $$($(1)_LIB): $$($(1)_MKDEP)
-$$($(1)_LIB): $$($(1)_all_DEPS) $$($(1)_all_OBJS)
-	@$$(call require-directory,$$(dir $$@))
+$$($(1)_LIB): $$($(1)_all_DEPS) $$($(1)_all_OBJS) $$$$(@D)/.dir
 	@$$(call link-$(2)-$(3)-$(COMPILER_FAMILY),$$(filter %.o,$$^),$$@,)
 
 ifeq ($(3),bundle)
@@ -179,8 +178,7 @@ $(1)-bundle: $$($(1)_LIB)
 
 $(1): $(1)-bundle
 else
-$(1): $$($(1)_LIB)
-	@$$(call require-directory,$$(dir $$($(1)_LIB))/dat)
+$(1): $$($(1)_LIB) $$$$(dir $$($(1)_LIB))/dat/.dir
 	[ -z "$$($(1)_all_DATAFILES)" ] || cp -r -f $$($(1)_all_DATAFILES) $$(dir $$($(1)_LIB))/dat
 
 endif

@@ -181,8 +181,7 @@ $$($(1)_MKDEP): DEFINES=$$($(1)_all_DEFINES)
 
 $$($(1)_PROG): $$($(1)_MKDEP)
 $$($(1)_PROG): $$($(1)_all_DEPS)
-$$($(1)_PROG): $$($(1)_all_OBJS)
-	$$(call require-directory,$$(dir $$@))
+$$($(1)_PROG): $$($(1)_all_OBJS) $$$$(@D)/.dir
 	$$(call link-$(2)-$$(COMPILER_FAMILY),$$^,$$@,)
 
 $(1)-bundle: $$($(1)_PROG)
@@ -193,7 +192,6 @@ ifneq ($$($(1)_BUNDLE),)
 $(1): $(1)-bundle
 else
 $(1): $$($(1)_PROG)
-	$$(call require-directory,$$(dir $$($(1)_PROG)))
 	[ -z "$$($(1)_all_DATAFILES)" ] || cp -r -f $$($(1)_all_DATAFILES) $$(dir $$($(1)_PROG))
 endif
 
@@ -232,8 +230,7 @@ $(1)_REPORTFILE:=$(DEST)/reports/$(1)-report-$$(call isotimestamp)-$$($(1)_RUNTI
 #
 # Additional parameters can be provided in the <program_name_ARGS>
 # variable
-$(1)-run: $(1)
-	$$(call require-directory,$$(dir $$($(1)_REPORTFILE)))
+$(1)-run: $(1) $$$$(dir $$($(1)_REPORTFILE))/.dir
 	@$(ysr-display-banner) "* Testing $(1)\n"
 # copy win32 dlls into the destination
 	@$(ysr-display-banner) "Copying shared libraries:\n"

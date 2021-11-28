@@ -162,27 +162,22 @@ COMPILER_FAMILY=gcc
 %.o: %.mm
 	$(call compile-objcc-$(COMPILER_FAMILY),$<,$@,$($<_FLAGS))
 
-$(DEST)/%.o: $(TOP)/%.c $(DEST)/%.o.dep
-	$(call require-directory,$(dir $@))
+$(DEST)/%.o: $(TOP)/%.c $(DEST)/%.o.dep $$(@D)/.dir
 	$(call compile-c-$(COMPILER_FAMILY),$<,$@,$($<_FLAGS))
 
-$(DEST)/%.o: $(TOP)/%.cpp $(DEST)/%.o.dep
-	$(call require-directory,$(dir $@))
+$(DEST)/%.o: $(TOP)/%.cpp $(DEST)/%.o.dep $$(@D)/.dir
 	$(call compile-c++-$(COMPILER_FAMILY),$<,$@,$($<_FLAGS))
 
-$(DEST)/%.o: $(TOP)/%.cc $(DEST)/%.o.dep
-	$(call require-directory,$(dir $@))
+$(DEST)/%.o: $(TOP)/%.cc $(DEST)/%.o.dep $$(@D)/.dir
 	$(call compile-c++-$(COMPILER_FAMILY),$<,$@,$($<_FLAGS))
 
-$(DEST)/%.o: $(TOP)/%.m $(DEST)/%.o.dep
-	$(call require-directory,$(dir $@))
+$(DEST)/%.o: $(TOP)/%.m $(DEST)/%.o.dep $$(@D)/.dir
 	$(call compile-objc-$(COMPILER_FAMILY),$<,$@,$($<_FLAGS))
 
-$(DEST)/%.o: $(TOP)/%.mm $(DEST)/%.o.dep
-	$(call require-directory,$(dir $@))
+$(DEST)/%.o: $(TOP)/%.mm $(DEST)/%.o.dep $$(@D)/.dir
 	$(call compile-objcc-$(COMPILER_FAMILY),$<,$@,$($<_FLAGS))
 
-$(DEST)/%.o: $(TOP)/%.s $(DEST)/%.o.dep
+$(DEST)/%.o: $(TOP)/%.s $(DEST)/%.o.dep $$(@D)/.dir
 	$(call compile-as-$(COMPILER_FAMILY),$<,$@,$($<_FLAGS))
 
 ##
@@ -229,40 +224,32 @@ $(DEST)/%.o.dep: $(DEST)/%.D
 $(DEST)/%.D: YSR_DISPLAY_DISABLED=true
 $(DEST)/%.D: CPPFLAGS+=-w -MM
 
-$(DEST)/%.D: %.c
-	$(call require-directory,$(dir $@))
+$(DEST)/%.D: %.c $$(@D)/.dir
 	$(CC) $(CSTD) $(call depflag-filter,$(CFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
 
-$(DEST)/%.D: $(DEST)/%.c
-	$(call require-directory,$(dir $@))
+$(DEST)/%.D: $(DEST)/%.c $$(@D)/.dir
 	$(CC) $(CSTD) $(call depflag-filter,$(CFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
 
-$(DEST)/%.D: %.cpp
-	$(call require-directory,$(dir $@))
+$(DEST)/%.D: %.cpp $$(@D)/.dir
 	$(CXX) $(call depflag-filter,$(CXXFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
 
-$(DEST)/%.D: %.cc
-	$(call require-directory,$(dir $@))
+$(DEST)/%.D: %.cc $$(@D)/.dir
 	$(CXX) $(call depflag-filter,$(CXXFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
 
-$(DEST)/%.D: %.s
-	$(call require-directory,$(dir $@))
+$(DEST)/%.D: %.s $$(@D)/.dir
 	$(CC) $(call depflag-filter,$(ASFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
 
-$(DEST)/%.D: %.m
-	$(call require-directory,$(dir $@))
+$(DEST)/%.D: %.m $$(@D)/.dir
 	$(CC) $(call depflag-filter,$(CFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
 
-$(DEST)/%.D: %.mm
-	$(call require-directory,$(dir $@))
+$(DEST)/%.D: %.mm $$(@D)/.dir
 	$(CXX) $(call depflag-filter,$(CFLAGS)) $(all_CPPFLAGS) $($<_FLAGS) $< > $@
 
 ifeq ($(ARCH),WIN32)
-$(DEST)/%.o.dep: %.rc
+$(DEST)/%.o.dep: %.rc $$(@D)/.dir
 	$(ysr-display-banner) "\n" > $@
 
-$(DEST)/%.o: %.rc
-	$(call require-directory,$(dir $@))
+$(DEST)/%.o: %.rc $$(@D)/.dir
 	$(WINDRES) -O coff $(IFLAGS) $< $@
 endif
 
