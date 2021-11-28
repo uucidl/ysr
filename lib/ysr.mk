@@ -149,6 +149,8 @@ all:
 HOST_CONFIG_MK=$(TOP)/ysr/$(HOST_NAME)-config.mk
 -include $(HOST_CONFIG_MK)
 
+WINDRES?=windres
+
 include $(YSR.libdir)/functions/functions.mk
 include $(YSR.libdir)/languages/gcc/rules.mk
 include $(YSR.libdir)/languages/gcc/flags.mk

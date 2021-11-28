@@ -10,6 +10,7 @@ include $(YSR.libdir)/languages/gcc/profile.mk
 #
 #   CC       : c compiler
 #   CXX      : c++ compiler
+#   WINDRES  : resource compiler (WIN32 only)
 #   CFLAGS   : flags for c compilation
 #   CXXFLAGS : flags for c++ compilation
 #   ASFLAGS  : flags for assembly compilation
@@ -262,7 +263,7 @@ $(DEST)/%.o.dep: %.rc
 
 $(DEST)/%.o: %.rc
 	$(call require-directory,$(dir $@))
-	windres -O coff $(IFLAGS) $< $@
+	$(WINDRES) -O coff $(IFLAGS) $< $@
 endif
 
 endif
