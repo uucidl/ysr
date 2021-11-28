@@ -150,6 +150,17 @@ VPATH=$(TOP)
 
 all:
 
+##
+# automatic directory creation
+
+# by setting a file "<dir>/.dir" as the prerequisite of a rule,
+# you can ensure the corresponding directory to be created using this rule:
+%/.dir:
+	mkdir -p $(dir $@)
+	touch $@
+.PRECIOUS:%/.dir
+
+
 HOST_CONFIG_MK=$(TOP)/ysr/$(HOST_NAME)-config.mk
 -include $(HOST_CONFIG_MK)
 
