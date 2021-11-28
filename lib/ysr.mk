@@ -148,6 +148,7 @@ GLOBAL_INCLUDES=$(TOP)
 
 VPATH=$(TOP)
 
+.PHONY: all
 all:
 
 ##
