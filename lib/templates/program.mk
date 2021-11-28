@@ -182,19 +182,19 @@ $$($(1)_MKDEP): DEFINES=$$($(1)_all_DEFINES)
 $$($(1)_PROG): $$($(1)_MKDEP)
 $$($(1)_PROG): $$($(1)_all_DEPS)
 $$($(1)_PROG): $$($(1)_all_OBJS)
-	@$$(call require-directory,$$(dir $$@))
-	@$$(call link-$(2)-$$(COMPILER_FAMILY),$$^,$$@,)
+	$$(call require-directory,$$(dir $$@))
+	$$(call link-$(2)-$$(COMPILER_FAMILY),$$^,$$@,)
 
 $(1)-bundle: $$($(1)_PROG)
 	@test -n "$$($(1)_BUNDLENAME)" || ($(ysr-display-banner) 'You must configure a bundle name for $(1) with $(1)_BUNDLENAME!\n' && false)
-	@$(YSR.libdir)/scripts/$(ARCH)/make-application-bundle.rb $$($(1)_BUNDLENAME) $$($(1)_PROG) $$($(1)_all_SHLIBS) $$($(1)_all_DATAFILES)
+	$(YSR.libdir)/scripts/$(ARCH)/make-application-bundle.rb $$($(1)_BUNDLENAME) $$($(1)_PROG) $$($(1)_all_SHLIBS) $$($(1)_all_DATAFILES)
 
 ifneq ($$($(1)_BUNDLE),)
 $(1): $(1)-bundle
 else
 $(1): $$($(1)_PROG)
-	@$$(call require-directory,$$(dir $$($(1)_PROG)))
-	@[ -z "$$($(1)_all_DATAFILES)" ] || cp -r -f $$($(1)_all_DATAFILES) $$(dir $$($(1)_PROG))
+	$$(call require-directory,$$(dir $$($(1)_PROG)))
+	[ -z "$$($(1)_all_DATAFILES)" ] || cp -r -f $$($(1)_all_DATAFILES) $$(dir $$($(1)_PROG))
 endif
 
 ifneq ($$($(1)_PERFMON),)
@@ -233,13 +233,13 @@ $(1)_REPORTFILE:=$(DEST)/reports/$(1)-report-$$(call isotimestamp)-$$($(1)_RUNTI
 # Additional parameters can be provided in the <program_name_ARGS>
 # variable
 $(1)-run: $(1)
-	@$$(call require-directory,$$(dir $$($(1)_REPORTFILE)))
+	$$(call require-directory,$$(dir $$($(1)_REPORTFILE)))
 	@$(ysr-display-banner) "* Testing $(1)\n"
 # copy win32 dlls into the destination
 	@$(ysr-display-banner) "Copying shared libraries:\n"
-	@true $$(foreach D,$$($(1)_all_SHLIBS),; cp -f $$(D) $$(dir $$($(1)_PROG)))
+	true $$(foreach D,$$($(1)_all_SHLIBS),; cp -f $$(D) $$(dir $$($(1)_PROG)))
 	@$(ysr-display-banner) "Running:\n"
-	@(exec 3>&1 ; RC=$$$$(exec 4>&1; { \
+	(exec 3>&1 ; RC=$$$$(exec 4>&1; { \
 		export PP=$$($(1)_EXEC_PATH) ; \
 		export HH=$(DEST)/$(1) ; \
 		$$($(1)_RUNENV) ; \
@@ -257,26 +257,24 @@ $(1)-COPY_SHLIBS=true $$(foreach D,$$($(1)_all_SHLIBS),; cp -f $$(D) $$(dir $$($
 # simple version of the above (just running the program)
 $(1)-run-simple: $(1)
 	@$(ysr-display-banner) "* Testing $(1)\n"
-	@$$($(1)-COPY_SHLIBS)
-	@$$($(1)_RUNENV)
-	@$$($(1)_EXEC) $$($(1)_ARGS)
+	$$($(1)-COPY_SHLIBS)
+	$$($(1)_RUNENV)
+	$$($(1)_EXEC) $$($(1)_ARGS)
 
 $(1)-debug: $(1)
 	@[ "$(OTYPE)" == "DEBUG" ] || $(call ysr-display-interactive-warning,"'You are debugging yet OTYPE=$(OTYPE) (use $(MAKE) OTYPE=DEBUG instead).. symbols might not be available to the debugger.'")
-	@$$($(1)-COPY_SHLIBS)
-	@($$($(1)_RUNENV) ; gdb --args $$($(1)_EXEC) $$($(1)_ARGS))
+	$$($(1)-COPY_SHLIBS)
+	($$($(1)_RUNENV) ; gdb --args $$($(1)_EXEC) $$($(1)_ARGS))
 
 $(1)-valgrind: $(1)
-	@$$($(1)-COPY_SHLIBS)
-	@($$($(1)_RUNENV) ; valgrind --smc-check=all --leak-check=full --show-reachable=yes $$(VALGRIND_ARGS) $$($(1)_PROG) $$($(1)_ARGS))
+	$$($(1)-COPY_SHLIBS)
+	($$($(1)_RUNENV) ; valgrind --smc-check=all --leak-check=full --show-reachable=yes $$(VALGRIND_ARGS) $$($(1)_PROG) $$($(1)_ARGS))
 
 $(1)-depclean:
-	@$(call ysr-display-left,"[rm -f] *.o.dep *.D")
-	@rm -f $$($(1)_MKDEPALL)
-	@$(call ysr-display-right,"done")
+	rm -f $$($(1)_MKDEPALL)
 
 $(1)-clean: $(1)-depclean
-	@rm -f $$($(1)_all_OBJS)
+	rm -f $$($(1)_all_OBJS)
 
 $(1)-showdep:
 	@$(ysr-display-banner) $$($(1)_MKDEP)
