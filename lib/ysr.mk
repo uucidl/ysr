@@ -80,6 +80,10 @@ ifeq ($(OS),Windows_NT)
   HOST_SYSTEM:=WIN32
   HOST_ARCH:=WIN32
 
+  ifeq ($(firstword $(subst /, ,$(PWD))),cygdrive)
+  HOST_SYSTEM:=WIN32 CYGWIN
+  endif
+
   ## and comes with another variable PROCESSOR_ARCHITECTURE which we can
   ## use to find out the processor type:
   ifeq ($(PROCESSOR_ARCHITECTURE),AMD64)
