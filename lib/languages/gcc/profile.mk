@@ -46,22 +46,8 @@ endif
 endif
 
 ifeq ($(ARCH),WIN32)
-
-ifneq ($(findstring CYGWIN,$(HOST_SYSTEM)),)
-ifeq ($(GCC_VERSION_MAJOR),3)
-GCCFLAGS+=-mno-cygwin
-GLOBAL_INCLUDES:=/usr/include/mingw $(INCLUDES)
-GLOBAL_LIBSPATH:=/lib/mingw $(LIBSPATH)
-endif
-else
-
-ifeq ($(GCC_VERSION_MAJOR),4)
 GLOBAL_LDFLAGS+=-static-libgcc
 GLOBAL_LDXXFLAGS+=-static-libstdc++
-endif
-
-endif
-
 endif
 
 ifeq ($(ARCH),MACOSX)
