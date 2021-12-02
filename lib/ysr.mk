@@ -170,6 +170,7 @@ all:
 
 
 HOST_CONFIG_MK=$(TOP)/ysr/$(HOST_NAME)-config.mk
+$(info Loading host-specific config from $(HOST_CONFIG_MK))
 -include $(HOST_CONFIG_MK)
 
 WINDRES?=windres
