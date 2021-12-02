@@ -164,7 +164,7 @@ $$($(1)_MKDEP): DEFINES=$$($(1)_all_DEFINES)
 
 $$($(1)_LIB): $$($(1)_MKDEP)
 $$($(1)_LIB): $$($(1)_all_DEPS) $$($(1)_all_OBJS) $$$$(@D)/.dir
-	@$$(call link-$(2)-$(3)-$(COMPILER_FAMILY),$$(filter %.o,$$^),$$@,)
+	$$(call link-$(2)-$(3)-$(COMPILER_FAMILY),$$(filter %.o,$$^),$$@,)
 
 ifeq ($(3),bundle)
 $(1)_BUNDLE_PACKAGE?=com.uucidl.ln2.$(1)
