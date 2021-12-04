@@ -78,6 +78,11 @@ nativepath=$(shell cygpath -m $(1))
 endif
 
 ## iso timestamp
+ifeq ($(ARCH),WIN32)
+isotimestamp=$(shell powershell get-date -format "{yyyMMdd@HHmmss}")
+else
+# assuming posix date is in here.
 isotimestamp=$(shell date +%Y%m%d@%H%M%S)
+endif
 
 endif
