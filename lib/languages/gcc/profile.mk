@@ -6,19 +6,6 @@ thirdparty_gcc_profile_mk=1
 CSTD=-std=c99
 CXXSTD=-std=c++11
 GCCFLAGS+=-Wall -Wextra -Winit-self -Wno-undef -Wno-unused -Wno-unused-parameter
-CC_VERSION:=$(strip $(shell $(YSR.libdir)/scripts/cc-version.sh "$(CC)"))
-
-ifeq ($(CC_VERSION),)
-$(error "Could not find out exact gcc version (Using '$(CC)').")
-endif
-
-GCC_VARIANT:=$(word 1,$(CC_VERSION))
-GCC_VERSION_MAJOR:=$(word 2,$(CC_VERSION))
-GCC_VERSION_MINOR:=$(word 3,$(CC_VERSION))
-
-ifneq ($(filter-out clang gcc,$(GCC_VARIANT)),)
-$(error "Unknown gcc variant '$(GCC_VARIANT)'")
-endif
 
 # the math library
 GLOBAL_LIBS:=m
@@ -39,10 +26,6 @@ GLOBAL_OFLAGS+=-fstrict-aliasing -Wstrict-aliasing=2
 
 ifneq ($(or $(findstring TEST,$(OTYPE)),$(findstring RELEASE,$(OTYPE))),)
 GLOBAL_OFLAGS+=-Os -ffast-math
-ifeq ($(GCC_VARIANT),gcc)
-GLOBAL_OFLAGS+=-fexpensive-optimizations
-endif
-
 endif
 
 ifeq ($(ARCH),WIN32)
