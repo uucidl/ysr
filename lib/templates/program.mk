@@ -221,7 +221,8 @@ $(1)_RUNENV+=; export MACOSX_DEPLOYMENT_TARGET=
 endif
 
 $(1)_RUNTITLE ?= default
-$(1)_REPORTFILE:=$(DEST)/reports/$(1)-report-$$(call isotimestamp)-$$($(1)_RUNTITLE).out
+$(1)_REPORTS_DIR=$(DEST)/reports
+$(1)_REPORTFILE=$($(1)_REPORTS_DIR)/$(1)-report-$$(call isotimestamp)-$$($(1)_RUNTITLE).out
 
 ##
 # running the test (the complex command line is to enable capturing
@@ -230,7 +231,7 @@ $(1)_REPORTFILE:=$(DEST)/reports/$(1)-report-$$(call isotimestamp)-$$($(1)_RUNTI
 #
 # Additional parameters can be provided in the <program_name_ARGS>
 # variable
-$(1)-run: $(1) $$$$(dir $$($(1)_REPORTFILE))/.dir
+$(1)-run: $(1) $$$$(dir $$($(1)_REPORTS_DIR))/.dir
 	@$(ysr-display-banner) "* Testing $(1)\n"
 # copy win32 dlls into the destination
 	@$(ysr-display-banner) "Copying shared libraries:\n"
