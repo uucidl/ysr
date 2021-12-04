@@ -165,7 +165,7 @@ all:
 # you can ensure the corresponding directory to be created using this rule:
 
 ifeq ($(ARCH),WIN32)
-make-directories=$(shell $(YSR.libdir)/scripts/makedirs.bat $(1))
+make-directories=$(shell $(YSR.libdir)/scripts/makedirs.bat $(call nativepath,$(1)))
 else
 # assume posix
 make-directories=$(shell mkdir -p $(1))
