@@ -184,18 +184,6 @@ include $(YSR.libdir)/languages/gcc/flags.mk
 #
 include $(YSR.libdir)/templates/target-rules.mk
 
-##
-# fetch the current revision of the tree
-
-REPO_IS_SVN=$(if $(realpath $(TOP)/.svn),T,)
-REPO_IS_GIT=$(if $(realpath $(TOP)/.git),T,)
-REPO_TYPE=$(if $(REPO_IS_SVN),svn,$(if $(REPO_IS_GIT),git,none))
-
-REPO_REV=$(shell sh $(YSR.libdir)/scripts/get-revision-$(REPO_TYPE).sh)
-
-BUILD_DESC:=$(strip $(OTYPE)-$(REPO_REV))
-
-GLOBAL_DEFINES+=BUILD_DESC="\"$(BUILD_DESC)\""
 GLOBAL_DEFINES+=ARCH_IS_$(ARCH)
 GLOBAL_DEFINES+=OTYPE_IS_$(OTYPE)
 GLOBAL_DEFINES+=TOP=$(call nativepath,$(TOP))
