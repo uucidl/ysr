@@ -47,8 +47,15 @@ typedef struct Lexer {
     int num_tokens; // stats
 } Lexer;
 
+typedef enum TokenKind {
+    TokenKind_None = 0,
+    TokenKind_Eol,
+    TokenKind_Escape,
+} TokenKind;
+
 typedef struct Token {
     int pos, len;
+    char kind;
 } Token;
 
 // You can't really parse and lex makefiles without also interpreting them, since variables definitions have direct influences on
@@ -307,7 +314,6 @@ expect_eol(Lexer *lexer) {
 
 void
 consume_line(Lexer *lexer) {
-    char const* p = lexer->input;
     while (1) {
         int len;
         if (matches_any_eol(lexer, &len)) {
@@ -337,16 +343,14 @@ next_token_internal(Lexer *lexer) {
                 return special_variable;
             }
             case '\\': {
-                Token escaped_eol = { .pos = lexer->pos };
                 lexer->pos++;
-                int len = 0;
-                if (matches_any_eol(lexer, &len)) {
-                    lexer->pos += len;
-                    terminate_token(lexer, &escaped_eol);
-                } else {
-                    terminate_token(lexer, &escaped_eol);
+                if (lexer->input[lexer->pos] == '\r') {
+                    lexer->pos++;
                 }
-                return escaped_eol;
+                Token escaped_char = { .pos = lexer->pos, .kind = TokenKind_Escape };
+                expect_eol(lexer);
+                terminate_token(lexer, &escaped_char);
+                return escaped_char;
             }
             case '#': consume_line(lexer); break;
             case ' ': {
@@ -357,15 +361,15 @@ next_token_internal(Lexer *lexer) {
             }
             case '\r': {
                 lexer->pos++;
-                Token newline = { .pos = lexer->pos };
                 if (expect_eol(lexer)) {
+                    Token newline = { .pos = lexer->pos, .kind = TokenKind_Eol };
                     lexer->logical_line++;
                     terminate_token(lexer, &newline);
                     return newline;
                 }
             } break;
             case '\n': {
-                Token newline = { .pos = lexer->pos };
+                Token newline = { .pos = lexer->pos, .kind = TokenKind_Eol };
                 lexer->pos++;
                 lexer->logical_line++;
                 terminate_token(lexer, &newline);
@@ -442,8 +446,8 @@ matches_keyword(char const* keyword, Token tok, Lexer *lexer) {
 }
 
 int
-matches_eol(Token tok, Lexer *lexer) {
-    return lexer->input[tok.pos] == '\n';
+matches_eol(Token tok) {
+    return tok.kind == TokenKind_Eol;
 }
 
 int
@@ -459,7 +463,6 @@ lstr text(Token tok, Lexer *lexer) {
 int lookup_variable_index(Interpreter *self, lstr key) {
     // O(n2) for now
     int key_n = strlen(key);
-    lstr value = 0;
     for (int i = 0; i < self->variables.n; i++) {
         if (self->variables.names_len[i] != key_n)
             continue;
@@ -581,7 +584,7 @@ interpret_filename(Interpreter *interpreter, Charbuf *result) {
     while (lexer->pos < lexer->endpos) {
         int old_pos = lexer->pos;
         Token tok = next_token(lexer);
-        if (matches_eol(tok, lexer) || matches_space(tok, lexer)) {
+        if (matches_eol(tok) || matches_space(tok, lexer)) {
             lexer_rewind(lexer, old_pos);
             break;
         }
@@ -625,7 +628,7 @@ interpret_include(Interpreter *interpreter, int is_optional) {
     Lexer *lexer = interpreter->lexer;
     while (lexer->pos < lexer->endpos) {
         Token tok = next_token(interpreter->lexer);
-        if (matches_eol(tok, lexer)) {
+        if (matches_eol(tok)) {
             break;
         }
         if (!matches_space(tok, lexer)) {
@@ -655,14 +658,14 @@ interpret_toplevel(Interpreter* interpreter) {
             int is_optional = text(tok, lexer)[0] != 'i';
             interpret_include(interpreter, is_optional);
             return 1;
+        } else if (matches_eol(tok)) {
+            sep = "\n";
         } else {
-            if (text(tok, lexer)[0] != '\n') {
-                printf("([%.*s]@%d)", tok.len, text(tok, lexer), tok.pos);
-            }
+            printf("([%.*s]@%d)", tok.len, text(tok, lexer), tok.pos);
+            sep = ", ";
         }
 
         if (tok.pos >= lexer->endpos) { return 0; }
-        sep = ", ";
     }
     return 0;
 }
