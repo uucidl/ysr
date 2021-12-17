@@ -29,18 +29,21 @@ typedef struct ArrayHeader {
 } ArrayHeader;
 
 typedef struct Project {
-    char const* topdir /* TOP variable */;
+    char const *topdir /* TOP variable */;
+    char const *projectfile; /* YSR.project.file variable */
+    char const *ysrlibdir; /* YSR.libdir variable */
+    char const *host_config_mk; /* HOST_CONFIG_MK variable */
 } Project;
 
 typedef struct Lexer {
     // input data:
     lstr input;
     int endpos;
-    
+
     int pos;
     int logical_line;
     char recipe_prefix_char; // by default \t but can be changed with .RECIPEPREFIX
-    
+
     int num_tokens; // stats
 } Lexer;
 
@@ -48,10 +51,19 @@ typedef struct Token {
     int pos, len;
 } Token;
 
-typedef struct Parser {
+// You can't really parse and lex makefiles without also interpreting them, since variables definitions have direct influences on
+typedef struct Interpreter {
     Lexer *lexer;
     Charbuf tmpbuf;
-} Parser;
+
+    struct {
+        int n;
+        int cap;
+        lstr *names;
+        int *names_len;
+        lstr *values;
+    } variables;
+} Interpreter;
 
 
 int align_up(int size, int alignment) {
@@ -69,6 +81,10 @@ void* reallocz(void *ptr, size_t old_size, size_t size) {
         memset(&bytes[old_size], 0, size - old_size);
     }
     return ptr;
+}
+
+void* recallocz(void *ptr, size_t old_num, size_t new_num, size_t elem_size) {
+    return reallocz(ptr, old_num * elem_size, new_num * elem_size);
 }
 
 void
@@ -198,13 +214,13 @@ consume_word(Lexer *lexer) {
             ('0' <= c && c <= '9') ||
             '_' == c || '.' == c || '/' == c || '-' == c;
         if (!isword)
-            break;           
+            break;
         lexer->pos++;
     }
 }
 
 void
-print_error_at(Lexer *lexer, int pos) {
+print_context_at(Lexer *lexer, int pos, char const* optional_prefix) {
     // let's print the whole line.
     int line_start_pos = pos;
     while (line_start_pos != 0 && lexer->input[line_start_pos-1] != '\n') {
@@ -215,11 +231,17 @@ print_error_at(Lexer *lexer, int pos) {
         line_end_pos++;
     }
     printf("\n");
-    printf("error: ");
+    if (optional_prefix)
+        printf("%s: ", optional_prefix);
     printf("%.*s\n", line_end_pos - line_start_pos, &lexer->input[line_start_pos]);
-    printf("error: ");
+    if (optional_prefix)
+        printf("%s: ", optional_prefix);
     printf("%*s^", pos - line_start_pos, "");
-    assert(0);
+}
+
+void
+print_error_at(Lexer *lexer, int pos) {
+    print_context_at(lexer, pos, "error");
 }
 
 void
@@ -271,7 +293,7 @@ void
 terminate_token(Lexer *lexer, Token *tok) {
     tok->len = lexer->pos - tok->pos;
 }
-  
+
 
 Token
 next_token_internal(Lexer *lexer) {
@@ -337,7 +359,7 @@ next_token_internal(Lexer *lexer) {
             case '$': case '(': case ')': {
                 // these tokens stand for themselves.
                 Token char_token = { .pos = lexer->pos++, .len = 1 };
-                return char_token;               
+                return char_token;
             } break;
             default:
                 if (is_word_at_char(c)) {
@@ -354,9 +376,9 @@ next_token_internal(Lexer *lexer) {
                     } else {
                         Token char_token = { .pos = lexer->pos++, .len = 1 };
                         return char_token;
-                    }            
+                    }
                 }
-                
+
                 Token unknown_token = { .pos = lexer->pos++, .len = 1 };
                 return unknown_token;
         }
@@ -394,13 +416,54 @@ lstr text(Token tok, Lexer *lexer) {
 }
 
 
+int lookup_variable_index(Interpreter *self, lstr key) {
+    // O(n2) for now
+    int key_n = strlen(key);
+    lstr value = 0;
+    for (int i = 0; i < self->variables.n; i++) {
+        if (self->variables.names_len[i] != key_n)
+            continue;
+        if (strncmp(self->variables.names[i], key, key_n))
+            continue;
+        return i;
+    }
+    return self->variables.n;
+}
+
+lstr lookup_variable(Interpreter *self, lstr key) {
+    if (self->variables.n == 0) return 0;
+    return self->variables.values[lookup_variable_index(self, key)];
+}
+
+void set_variable(Interpreter *self, lstr key, lstr value) {
+    int i = lookup_variable_index(self, key);
+    assert(0 <= i && i <= self->variables.n);
+    if (i == self->variables.n && i >= self->variables.cap) {
+        int old_cap = self->variables.cap;
+        int new_cap = align_up(old_cap + old_cap + 1, 16);
+        self->variables.names = recallocz(self->variables.names, old_cap, new_cap, sizeof self->variables.names[0]);
+        self->variables.names_len = recallocz(self->variables.names_len, old_cap, new_cap, sizeof self->variables.names_len[0]);
+        self->variables.values = recallocz(self->variables.values, old_cap, new_cap, sizeof self->variables.values[0]);
+        self->variables.cap = new_cap;
+    }
+    if (i == self->variables.n) { // new name
+        self->variables.n++;
+        int n = strlen(key);
+        self->variables.names_len[i] = n;
+        self->variables.names[i] = strdup(key);
+    }
+    lstr old_value = self->variables.values[i];
+    self->variables.values[i] = strdup(value);
+    free(old_value);
+}
+
 void
-parser_error(Parser *parser, char* context, Token tok) {
-    Lexer *lexer = parser->lexer;
+interpreter_error(Interpreter *interpreter, char* context, Token tok) {
+    Lexer *lexer = interpreter->lexer;
     print_error_at(lexer, tok.pos);
 
-    printf("error during parsing of %s at byte %d,", context, lexer->pos);
-    printf(" got '%.*s'\n", tok.len, text(tok, lexer));    
+    printf("error while %s at byte %d,", context, lexer->pos);
+    printf(" got '%.*s'\n", tok.len, text(tok, lexer));
 }
 
 int
@@ -409,49 +472,74 @@ matches_space(Token tok, Lexer *lexer) {
 }
 
 int
-expects_space(Parser *parser) {
-    Lexer *lexer = parser->lexer;
+expects_space(Interpreter *interpreter) {
+    Lexer *lexer = interpreter->lexer;
     Token tok = next_token(lexer);
     if (!matches_space(tok, lexer)) {
-        parser_error(parser, "expecting space", tok);
+        interpreter_error(interpreter, "expecting space", tok);
         return 0;
     }
     return 1;
 }
 
 void
-parser_free(Parser *parser) {
-    chars_free(&parser->tmpbuf);
+interpreter_free(Interpreter *self) {
+    chars_free(&self->tmpbuf);
+    for (int i = 0; i < self->variables.n; i++) {
+        free(self->variables.names[i]);
+        free(self->variables.values[i]);
+    }
+    free(self->variables.names);
+    free(self->variables.names_len);
+    free(self->variables.values);
+    memset(&self->variables, 0, sizeof self->variables);
 }
 
 // either variable or function
 int
-parse_reference(Parser *parser) {
-    Lexer *lexer = parser->lexer;
-    Token tok; 
+interpret_reference(Interpreter *interpreter, Charbuf *result) {
+    Lexer *lexer = interpreter->lexer;
+    Token tok;
     tok = next_token(lexer);
     if (!matches_char(tok, '(', lexer)) {
-        parser_error(parser, "expecting ( at start of function or variable reference", tok);
+        interpreter_error(interpreter, "expecting ( at start of function or variable reference", tok);
         return 0;
     }
+    Charbuf variable_name = { 0 };
     while (lexer->pos < lexer->endpos) {
         tok = next_token(lexer);
         if (matches_char(tok, ')', lexer)) {
             break;
+        } else if (matches_char(tok, '$', lexer)) { // references can be nested
+            Charbuf subreference_result = { 0 };
+            int subreference = interpret_reference(interpreter, &subreference_result);
+            if (!subreference)
+                return 0;
+            chars_free(&subreference_result);
+            assert(0); return 0; // not implemented yet.
+        } else {
+            chars_push_nstr(&variable_name, tok.len, text(tok, lexer));
         }
     }
     if (!matches_char(tok, ')', lexer)) {
-        parser_error(parser, "expected ) at end of function or variable reference", tok);
+        interpreter_error(interpreter, "expected ) at end of function or variable reference", tok);
         return 0;
     }
+    lstr value = lookup_variable(interpreter, variable_name.data);
+    if (!value) {
+        return 0;
+    }
+    chars_push_nstr(result, strlen(value), value);
     return 1;
 }
 
-void
-parse_filename(Parser *parser) {
-    Lexer *lexer = parser->lexer;
+int
+interpret_filename(Interpreter *interpreter) {
+    // I don't think there's anything specially filenamy about this, it's a generic interpretation of a string.
+
+    Lexer *lexer = interpreter->lexer;
     int needs_evaluation = 0;
-    chars_reset(&parser->tmpbuf);
+    chars_reset(&interpreter->tmpbuf);
     while (lexer->pos < lexer->endpos) {
         int old_pos = lexer->pos;
         Token tok = next_token(lexer);
@@ -460,49 +548,55 @@ parse_filename(Parser *parser) {
             break;
         }
         if (matches_char(tok, '$', lexer)) {
-            if (!parse_reference(parser)) {
-                break;
+            Charbuf reference_value = { 0 };
+            if (!interpret_reference(interpreter, &reference_value)) {
+                printf("\nVariable/function reference: '%.*s' evaluation failed\n", lexer->pos - tok.pos, &lexer->input[tok.pos]);
+                interpreter_error(interpreter, "evaluating reference", tok);
+                return 0;
             }
-            printf("Variable/function reference: '%.*s'", lexer->pos - tok.pos, &lexer->input[tok.pos]);
-            needs_evaluation = 1;
+            chars_push_nstr(&interpreter->tmpbuf, reference_value.size, reference_value.data);
+            chars_free(&reference_value);
         } else {
             printf("%.*s", tok.len, text(tok, lexer));
-            chars_push_nstr(&parser->tmpbuf, tok.len, text(tok, lexer)); // needs eval, so let's stop building
+            chars_push_nstr(&interpreter->tmpbuf, tok.len, text(tok, lexer)); // needs eval, so let's stop building
         }
     }
     if (needs_evaluation) {
         // @todo
         printf("I do not know how to evaluate references yet");
+        return 0;
     }
-    if (!needs_evaluation) {
-        printf("content of tmpbuf: %s\n", parser->tmpbuf.data);
-    }
+    printf("content of tmpbuf: %s\n", interpreter->tmpbuf.data);
+    return 1;
 }
 
 void
-parse_include(Parser *parser) {
+interpret_include(Interpreter *interpreter) {
     printf("III: include directive here in this line: ");
-    
-    expects_space(parser);
-    parse_filename(parser);
-    
-    Lexer *lexer = parser->lexer;
+    print_context_at(interpreter->lexer, interpreter->lexer->pos, 0);
+
+    expects_space(interpreter);
+    if (!interpret_filename(interpreter)) {
+        return;
+    }
+
+    Lexer *lexer = interpreter->lexer;
     while (lexer->pos < lexer->endpos) {
-        Token tok = next_token(parser->lexer);
+        Token tok = next_token(interpreter->lexer);
         if (matches_eol(tok, lexer)) {
             break;
         }
         if (!matches_space(tok, lexer)) {
-            parser_error(parser, "expected space between the filenames of an include directive", tok);
+            interpreter_error(interpreter, "expected space between the filenames of an include directive", tok);
             break;
         }
-        parse_filename(parser);
+        interpret_filename(interpreter);
     }
 }
 
 int
-parse_toplevel(Parser* parser) {
-    Lexer *lexer = parser->lexer;
+interpret_toplevel(Interpreter* interpreter) {
+    Lexer *lexer = interpreter->lexer;
 
     char const* sep = "\n";
     while (lexer->pos < lexer->endpos) {
@@ -514,14 +608,14 @@ parse_toplevel(Parser* parser) {
         if (matches_keyword("include", tok, lexer) ||
             matches_keyword("-include", tok, lexer) ||
             matches_keyword("sinclude", tok, lexer)) {
-            parse_include(parser);
+            interpret_include(interpreter);
             return 1;
         } else {
             if (text(tok, lexer)[0] != '\n') {
                 printf("([%.*s]@%d)", tok.len, text(tok, lexer), tok.pos);
             }
         }
-        
+
         if (tok.pos >= lexer->endpos) { return 0; }
         sep = ", ";
     }
@@ -529,7 +623,7 @@ parse_toplevel(Parser* parser) {
 }
 
 void
-process_ysr_file(Project *proj, char *filename) {
+process_ysr_file(Project *project, char *filename) {
     size_t num_bytes = 0;
     char* err = 0;
     char *file_content = read_whole_file(filename, &num_bytes, &err);
@@ -537,10 +631,14 @@ process_ysr_file(Project *proj, char *filename) {
         printf("error while reading file %s: %s\n", filename, err);
         return;
     }
-    
+
     Lexer lexer = { .input = file_content, .endpos = num_bytes, 0 };
-    Parser parser = { .lexer = &lexer };
-    while (parse_toplevel(&parser)) {
+    Interpreter interpreter = { .lexer = &lexer };
+    set_variable(&interpreter, "TOP", project->topdir);
+    set_variable(&interpreter, "YSR.project.file", project->projectfile);
+    set_variable(&interpreter, "YSR.libdir", project->ysrlibdir);
+    set_variable(&interpreter, "HOST_CONFIG_MK", project->host_config_mk);
+    while (interpret_toplevel(&interpreter)) {
         // continue;
     }
     printf("Stats for %s:\n", filename);
@@ -548,13 +646,18 @@ process_ysr_file(Project *proj, char *filename) {
     printf("num_tokens: %d\n", lexer.num_tokens);
     printf("avg_byte_per_token: %f\n", 1.0 * num_bytes / lexer.num_tokens);
 
-    parser_free(&parser);
+    interpreter_free(&interpreter);
     free(file_content);
 }
 
 int
 main(void) {
-    Project project = { .topdir = "h:/ln2/trunk" };
+    Project project = {
+        .topdir = "h:/ln2/trunk",
+        .projectfile = "h:/ln2/trunk/project.ysr",
+        .ysrlibdir = "h:/ysr/lib",
+        .host_config_mk = "h:/ln2/trunk/ysr/local-config.mk",
+    };
     char *filenames_data[] = {
         "h:/ln2/trunk/plugins/Gordia/Makefile",
         "h:/ysr/lib/ysr.mk",
@@ -567,6 +670,6 @@ main(void) {
         printf("----\nhello %s\n", filenames_data[i]);
         process_ysr_file(&project, filenames_data[i]);
     }
-    
+
     return 0;
 }
