@@ -114,6 +114,7 @@ chars_push_nstr(Charbuf *buf, size_t n, lstr str) {
         buf->capacity = new_capacity;
     }
     memcpy(&buf->data[buf->size], &str[0], n);
+    buf->data[buf->size + n] = '\0'; // always null terminate the strings for compat with C
     buf->size += n;
 }
 
@@ -250,24 +251,50 @@ lexer_rewind(Lexer *lexer, int pos) {
     lexer->pos = pos;
 }
 
-int
-lexer_expect_char(Lexer *lexer, char* context, char expected_char, char const* optional_name_of_expected_char) {
-    char c = lexer->input[lexer->pos];
+int lexer_expect_char_at_pos(Lexer *lexer, char* context, char expected_char, char const* optional_name_of_expected_char, int pos) {
+    char c = lexer->input[pos];
     int success = c == expected_char;
     if (!success) {
-        print_error_at(lexer, lexer->pos);
+        print_error_at(lexer, pos);
 
-        printf("error during lexing of %s at byte %d, expected ", context, lexer->pos);
+        printf("error during lexing of %s at byte %d, expected ", context, pos);
         if (optional_name_of_expected_char) {
             printf("%s", optional_name_of_expected_char);
         } else {
             printf("'%c'", expected_char);
         }
         printf(" got '%c' (%d)\n", c, c);
-    } else {
-        lexer->pos++;
     }
     return success;
+}
+
+int
+lexer_expect_char(Lexer *lexer, char* context, char expected_char, char const* optional_name_of_expected_char) {
+    if (lexer_expect_char_at_pos(lexer, context, expected_char, optional_name_of_expected_char, lexer->pos)) {
+        lexer->pos++;
+        return 1;
+    }
+    return 0;
+}
+
+int
+matches_any_eol(Lexer *lexer, int *len_of_eol) {
+    char c = lexer->input[lexer->pos];
+    switch (c) {
+        case '\r': {
+            if (lexer->pos >= lexer->endpos) {
+                print_error_at(lexer, lexer->pos);
+                printf("expected \n, got end of file.\n");
+                *len_of_eol = 1;
+                return 1;
+            }
+            lexer_expect_char_at_pos(lexer, "windows-style end of line", '\n', "LF: line feed / \\n", lexer->pos + 1);
+            *len_of_eol = 2;
+            return 1;
+        } break;
+        case '\n': *len_of_eol = 1;  return 1;
+    }
+    return 0;
 }
 
 int
@@ -282,10 +309,12 @@ void
 consume_line(Lexer *lexer) {
     char const* p = lexer->input;
     while (1) {
-        char c = p[lexer->pos++];
-        if (c == '\n') {
+        int len;
+        if (matches_any_eol(lexer, &len)) {
+            (void) len;
             break;
         }
+        lexer->pos++;
     }
 }
 
@@ -309,8 +338,14 @@ next_token_internal(Lexer *lexer) {
             }
             case '\\': {
                 Token escaped_eol = { .pos = lexer->pos };
-                expect_eol(lexer);
-                terminate_token(lexer, &escaped_eol);
+                lexer->pos++;
+                int len = 0;
+                if (matches_any_eol(lexer, &len)) {
+                    lexer->pos += len;
+                    terminate_token(lexer, &escaped_eol);
+                } else {
+                    terminate_token(lexer, &escaped_eol);
+                }
                 return escaped_eol;
             }
             case '#': consume_line(lexer); break;
@@ -349,25 +384,25 @@ next_token_internal(Lexer *lexer) {
                 lexer->pos++;
                 return char_token;
             }
-            case '?': case '!': case '+':
-                Token assign_token = { .pos = lexer->pos++ };
-                c = p[lexer->pos];
-                if (lexer_expect_char(lexer, "assignment", '=', 0)) {
-                    terminate_token(lexer, &assign_token);
-                    return assign_token;
+            case '?': case '!': case '+': {
+                if (lexer->input[lexer->pos + 1] == '=') {
+                    Token assign_token = { .pos = lexer->pos++ };
+                    if (lexer_expect_char(lexer, "assignment", '=', 0)) {
+                        terminate_token(lexer, &assign_token);
+                        return assign_token;
+                    }
                 }
+                Token char_token = { .pos = lexer->pos, .len = 1 };
+                lexer->pos++;
+                return char_token;
+            } break;
             case '$': case '(': case ')': {
                 // these tokens stand for themselves.
                 Token char_token = { .pos = lexer->pos++, .len = 1 };
                 return char_token;
             } break;
             default:
-                if (is_word_at_char(c)) {
-                    Token word_token = { .pos = lexer->pos++ };
-                    consume_word(lexer);
-                    terminate_token(lexer, &word_token);
-                    return word_token;
-                } else if (is_recipe_at_char(lexer, c)) {
+                if (is_recipe_at_char(lexer, c)) {
                     if (lexer->pos == 0 || lexer->input[lexer->pos - 1] == '\n') {
                         Token recipe_token = { .pos = lexer->pos, };
                         consume_line(lexer);
@@ -377,6 +412,11 @@ next_token_internal(Lexer *lexer) {
                         Token char_token = { .pos = lexer->pos++, .len = 1 };
                         return char_token;
                     }
+                } else if (is_word_at_char(c)) {
+                    Token word_token = { .pos = lexer->pos++ };
+                    consume_word(lexer);
+                    terminate_token(lexer, &word_token);
+                    return word_token;
                 }
 
                 Token unknown_token = { .pos = lexer->pos++, .len = 1 };
@@ -462,7 +502,7 @@ interpreter_error(Interpreter *interpreter, char* context, Token tok) {
     Lexer *lexer = interpreter->lexer;
     print_error_at(lexer, tok.pos);
 
-    printf("error while %s at byte %d,", context, lexer->pos);
+    printf("error: while %s at byte %d,", context, lexer->pos);
     printf(" got '%.*s'\n", tok.len, text(tok, lexer));
 }
 
@@ -534,12 +574,10 @@ interpret_reference(Interpreter *interpreter, Charbuf *result) {
 }
 
 int
-interpret_filename(Interpreter *interpreter) {
+interpret_filename(Interpreter *interpreter, Charbuf *result) {
     // I don't think there's anything specially filenamy about this, it's a generic interpretation of a string.
 
     Lexer *lexer = interpreter->lexer;
-    int needs_evaluation = 0;
-    chars_reset(&interpreter->tmpbuf);
     while (lexer->pos < lexer->endpos) {
         int old_pos = lexer->pos;
         Token tok = next_token(lexer);
@@ -554,32 +592,36 @@ interpret_filename(Interpreter *interpreter) {
                 interpreter_error(interpreter, "evaluating reference", tok);
                 return 0;
             }
-            chars_push_nstr(&interpreter->tmpbuf, reference_value.size, reference_value.data);
+            chars_push_nstr(result, reference_value.size, reference_value.data);
             chars_free(&reference_value);
         } else {
-            printf("%.*s", tok.len, text(tok, lexer));
-            chars_push_nstr(&interpreter->tmpbuf, tok.len, text(tok, lexer)); // needs eval, so let's stop building
+            chars_push_nstr(result, tok.len, text(tok, lexer));
         }
     }
-    if (needs_evaluation) {
-        // @todo
-        printf("I do not know how to evaluate references yet");
-        return 0;
-    }
-    printf("content of tmpbuf: %s\n", interpreter->tmpbuf.data);
     return 1;
 }
 
+void interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional);
+
 void
-interpret_include(Interpreter *interpreter) {
+interpret_find_and_load_file(Interpreter *interpreter, char *filename_spec, int is_optional) {
+    // @todo implement lookup in various include-dirs.
+    printf("debug: attempting to load file: %s\n", filename_spec);
+    interpreter_load_file(interpreter, filename_spec, is_optional);
+}
+
+void
+interpret_include(Interpreter *interpreter, int is_optional) {
     printf("III: include directive here in this line: ");
     print_context_at(interpreter->lexer, interpreter->lexer->pos, 0);
 
     expects_space(interpreter);
-    if (!interpret_filename(interpreter)) {
+    chars_reset(&interpreter->tmpbuf);
+    if (!interpret_filename(interpreter, &interpreter->tmpbuf)) {
         return;
     }
-
+    interpret_find_and_load_file(interpreter, interpreter->tmpbuf.data, is_optional);
+    
     Lexer *lexer = interpreter->lexer;
     while (lexer->pos < lexer->endpos) {
         Token tok = next_token(interpreter->lexer);
@@ -590,7 +632,9 @@ interpret_include(Interpreter *interpreter) {
             interpreter_error(interpreter, "expected space between the filenames of an include directive", tok);
             break;
         }
-        interpret_filename(interpreter);
+        chars_reset(&interpreter->tmpbuf);
+        interpret_filename(interpreter, &interpreter->tmpbuf);
+        interpret_find_and_load_file(interpreter, interpreter->tmpbuf.data, is_optional);
     }
 }
 
@@ -608,7 +652,8 @@ interpret_toplevel(Interpreter* interpreter) {
         if (matches_keyword("include", tok, lexer) ||
             matches_keyword("-include", tok, lexer) ||
             matches_keyword("sinclude", tok, lexer)) {
-            interpret_include(interpreter);
+            int is_optional = text(tok, lexer)[0] != 'i';
+            interpret_include(interpreter, is_optional);
             return 1;
         } else {
             if (text(tok, lexer)[0] != '\n') {
@@ -622,32 +667,45 @@ interpret_toplevel(Interpreter* interpreter) {
     return 0;
 }
 
-void
-process_ysr_file(Project *project, char *filename) {
+void interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional) {
+    Lexer *old_lexer = interpreter->lexer;
+
     size_t num_bytes = 0;
     char* err = 0;
     char *file_content = read_whole_file(filename, &num_bytes, &err);
     if (err) {
-        printf("error while reading file %s: %s\n", filename, err);
+        if (is_optional) return; // silent
+        printf("error: while reading file %s: %s\n", filename, err);
         return;
     }
-
+    
     Lexer lexer = { .input = file_content, .endpos = num_bytes, 0 };
-    Interpreter interpreter = { .lexer = &lexer };
-    set_variable(&interpreter, "TOP", project->topdir);
-    set_variable(&interpreter, "YSR.project.file", project->projectfile);
-    set_variable(&interpreter, "YSR.libdir", project->ysrlibdir);
-    set_variable(&interpreter, "HOST_CONFIG_MK", project->host_config_mk);
-    while (interpret_toplevel(&interpreter)) {
+    interpreter->lexer = &lexer;
+    
+    while (interpret_toplevel(interpreter)) {
         // continue;
     }
+
     printf("Stats for %s:\n", filename);
     printf("num_bytes: %d\n", num_bytes);
     printf("num_tokens: %d\n", lexer.num_tokens);
     printf("avg_byte_per_token: %f\n", 1.0 * num_bytes / lexer.num_tokens);
+    free(file_content); 
+    
+    interpreter->lexer = old_lexer;
+}
+
+void
+process_ysr_file(Project *project, char *filename) {
+    Interpreter interpreter = { 0 };
+    set_variable(&interpreter, "TOP", project->topdir);
+    set_variable(&interpreter, "YSR.project.file", project->projectfile);
+    set_variable(&interpreter, "YSR.libdir", project->ysrlibdir);
+    set_variable(&interpreter, "HOST_CONFIG_MK", project->host_config_mk);
+
+    interpreter_load_file(&interpreter, filename, 0);
 
     interpreter_free(&interpreter);
-    free(file_content);
 }
 
 int
@@ -660,8 +718,6 @@ main(void) {
     };
     char *filenames_data[] = {
         "h:/ln2/trunk/plugins/Gordia/Makefile",
-        "h:/ysr/lib/ysr.mk",
-        "h:/ln2/trunk/config.mk",
     };
     ArrayHeader filenames;
     filenames.count = sizeof filenames_data / sizeof filenames_data[0];
