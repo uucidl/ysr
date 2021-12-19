@@ -49,8 +49,10 @@ typedef struct Lexer {
 
 typedef enum TokenKind {
     TokenKind_None = 0,
+    TokenKind_Assignment,
     TokenKind_Eol,
     TokenKind_Escape,
+    TokenKind_Recipe,
 } TokenKind;
 
 typedef struct Token {
@@ -285,6 +287,14 @@ lexer_expect_char(Lexer *lexer, char* context, char expected_char, char const* o
 }
 
 int
+expect_eol(Lexer *lexer) {
+    if (lexer_expect_char(lexer, "eol", '\n', "end-of-line")) {
+        return 1;
+    }
+    return 0;
+}
+
+int
 matches_any_eol(Lexer *lexer, int *len_of_eol) {
     char c = lexer->input[lexer->pos];
     switch (c) {
@@ -304,20 +314,19 @@ matches_any_eol(Lexer *lexer, int *len_of_eol) {
     return 0;
 }
 
-int
-expect_eol(Lexer *lexer) {
-    if (lexer_expect_char(lexer, "eol", '\n', "end-of-line")) {
-        return 1;
-    }
-    return 0;
-}
-
 void
 consume_line(Lexer *lexer) {
     while (1) {
         int len;
-        if (matches_any_eol(lexer, &len)) {
-            (void) len;
+        if (lexer->input[lexer->pos] == '\\') {
+            lexer->pos++;
+        } else if (lexer->input[lexer->pos] == '\r') {
+            if (lexer->input[lexer->pos + 1] != '\n') {
+                print_error_at(lexer, lexer->pos);
+                printf("expected \\n, got %c.\n", lexer->input[lexer->pos + 1]);
+            }
+            break;
+        } else if (lexer->input[lexer->pos] == '\n') {
             break;
         }
         lexer->pos++;
@@ -381,6 +390,7 @@ next_token_internal(Lexer *lexer) {
                 if (lexer->input[lexer->pos + 1] == '=') {
                     Token assign_token = { .pos = lexer->pos, };
                     lexer->pos += 2;
+                    assign_token.kind = TokenKind_Assignment;
                     terminate_token(lexer, &assign_token);
                     return assign_token;
                 }
@@ -392,6 +402,7 @@ next_token_internal(Lexer *lexer) {
                 if (lexer->input[lexer->pos + 1] == '=') {
                     Token assign_token = { .pos = lexer->pos++ };
                     if (lexer_expect_char(lexer, "assignment", '=', 0)) {
+                        assign_token.kind = TokenKind_Assignment;
                         terminate_token(lexer, &assign_token);
                         return assign_token;
                     }
@@ -405,11 +416,17 @@ next_token_internal(Lexer *lexer) {
                 Token char_token = { .pos = lexer->pos++, .len = 1 };
                 return char_token;
             } break;
+            case '=': {
+                Token char_token = { .pos = lexer->pos++, .len = 1 };
+                char_token.kind = TokenKind_Assignment;
+                return char_token;
+            } break;
             default:
                 if (is_recipe_at_char(lexer, c)) {
                     if (lexer->pos == 0 || lexer->input[lexer->pos - 1] == '\n') {
                         Token recipe_token = { .pos = lexer->pos, };
                         consume_line(lexer);
+                        recipe_token.kind = TokenKind_Recipe;
                         terminate_token(lexer, &recipe_token);
                         return recipe_token;
                     } else {
@@ -451,6 +468,11 @@ matches_eol(Token tok) {
 }
 
 int
+matches_word(Token tok) {
+    return tok.kind == TokenKind_None;
+}
+
+int
 matches_char(Token tok, char c, Lexer *lexer) {
     return tok.len == 1 && lexer->input[tok.pos] == c;
 }
@@ -458,7 +480,6 @@ matches_char(Token tok, char c, Lexer *lexer) {
 lstr text(Token tok, Lexer *lexer) {
     return &lexer->input[tok.pos];
 }
-
 
 int lookup_variable_index(Interpreter *self, lstr key) {
     // O(n2) for now
@@ -558,8 +579,8 @@ interpret_reference(Interpreter *interpreter, Charbuf *result) {
             int subreference = interpret_reference(interpreter, &subreference_result);
             if (!subreference)
                 return 0;
+            chars_push_nstr(&variable_name, subreference_result.size, subreference_result.data);
             chars_free(&subreference_result);
-            assert(0); return 0; // not implemented yet.
         } else {
             chars_push_nstr(&variable_name, tok.len, text(tok, lexer));
         }
@@ -570,6 +591,7 @@ interpret_reference(Interpreter *interpreter, Charbuf *result) {
     }
     lstr value = lookup_variable(interpreter, variable_name.data);
     if (!value) {
+        printf("error: could not find value of variable '%s'\n", variable_name.data);
         return 0;
     }
     chars_push_nstr(result, strlen(value), value);
@@ -624,7 +646,7 @@ interpret_include(Interpreter *interpreter, int is_optional) {
         return;
     }
     interpret_find_and_load_file(interpreter, interpreter->tmpbuf.data, is_optional);
-    
+
     Lexer *lexer = interpreter->lexer;
     while (lexer->pos < lexer->endpos) {
         Token tok = next_token(interpreter->lexer);
@@ -642,14 +664,132 @@ interpret_include(Interpreter *interpreter, int is_optional) {
 }
 
 int
+interpret_assignment(Interpreter *self, Token first_token) {
+    Lexer *lexer = self->lexer;
+
+    Token tok;
+    do {
+        tok = next_token(lexer);
+    } while (matches_space(tok, lexer));
+
+    if (tok.kind == TokenKind_Assignment) {
+        printf("AAA: assignment found.");
+        print_context_at(lexer, tok.pos, "AAA");
+        printf(" variable name is '%.*s'\n", first_token.len, text(first_token, lexer));
+
+        while (lexer->pos < lexer->endpos) {
+            tok = next_token(lexer);
+            if (matches_eol(tok)) {
+                break;
+            }
+        }
+
+        return 1;
+    }
+    return 0;
+}
+
+int
+interpret_word(Interpreter *self, Token tok, Charbuf *result) {
+    Lexer *lexer = self->lexer;
+    if (matches_char(tok, '$', lexer)) {
+        Charbuf reference_value = { 0 };
+        if (!interpret_reference(self, &reference_value)) {
+            printf("\nVariable/function reference: '%.*s' evaluation failed\n", lexer->pos - tok.pos, &lexer->input[tok.pos]);
+            interpreter_error(self, "evaluating reference", tok);
+            return 0;
+        }
+        chars_push_nstr(result, reference_value.size, reference_value.data);
+        chars_free(&reference_value);
+    } else {
+        chars_push_nstr(result, tok.len, text(tok, lexer));
+    }
+    return 1;
+}
+
+int
+interpret_rule_target(Interpreter *interpreter, Charbuf *result) {
+    Lexer *lexer = interpreter->lexer;
+    while (lexer->pos < lexer->endpos) {
+        int old_pos = lexer->pos;
+        Token tok = next_token(lexer);
+        if (matches_eol(tok) || matches_space(tok, lexer) || matches_char(tok, ':', lexer)) {
+            lexer_rewind(lexer, old_pos);
+            break;
+        }
+        if (!interpret_word(interpreter, tok, result)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int
+interpret_rule(Interpreter *self, Token first_token) {
+    Lexer *lexer = self->lexer;
+
+    Charbuf target_buf = { 0 };
+    lexer_rewind(lexer, first_token.pos);
+    if (!interpret_rule_target(self, &target_buf))
+        goto not_a_rule;
+    printf("rule target: %s\n", target_buf.data);
+
+    Token tok = { 0 };
+    while (lexer->pos < lexer->endpos) {
+        int old_pos = lexer->pos;
+        tok = next_token(lexer);
+        if (!matches_char(tok, ' ', lexer)) {
+            lexer_rewind(lexer, old_pos);
+            break;
+        }
+        chars_reset(&target_buf);
+        if (!interpret_rule_target(self, &target_buf))
+            goto not_a_rule;
+
+        printf("rule target: %s\n", target_buf.data);
+    }
+
+    if (!matches_char(tok, ':', lexer)) {
+        goto not_a_rule;
+    }
+
+    while (lexer->pos < lexer->endpos) {
+        tok = next_token(lexer);
+        if (matches_eol(tok))
+            break;
+    }
+
+    while (lexer->pos < lexer->endpos) {
+        int old_pos = lexer->pos;
+        tok = next_token(lexer);
+        if (tok.kind != TokenKind_Recipe) {
+            lexer_rewind(lexer, old_pos);
+            break;
+        }
+        expect_eol(lexer);
+    }
+
+    printf("RRR: found rule");
+    print_context_at(lexer, first_token.pos, "RRR");
+    printf("rule here has target name '%s'\n", target_buf.data);
+
+    chars_free(&target_buf);
+    return 1;
+not_a_rule:
+    printf("XXX: not a rule at pos %d", first_token.pos);
+    print_context_at(lexer, first_token.pos, "XXX");
+    chars_free(&target_buf);
+    return 0;
+}
+
+int
 interpret_toplevel(Interpreter* interpreter) {
     Lexer *lexer = interpreter->lexer;
 
     char const* sep = "\n";
+    Token tok = { 0 };
     while (lexer->pos < lexer->endpos) {
-        Token tok = next_token(lexer); // first token in the line.
-
-        printf("%s", sep);
+        tok = next_token(lexer); // first token in the line.
 
         // parse directives:
         if (matches_keyword("include", tok, lexer) ||
@@ -658,16 +798,55 @@ interpret_toplevel(Interpreter* interpreter) {
             int is_optional = text(tok, lexer)[0] != 'i';
             interpret_include(interpreter, is_optional);
             return 1;
+        } else if (matches_keyword("ifeq", tok, lexer)) {
+            // @todo implement me.
+            goto error_recovery;
+        } else if (matches_keyword("ifneq", tok, lexer)) {
+            // @todo implement me
+            goto error_recovery;
+        } else if (matches_keyword("else", tok, lexer)) {
+            // @todo implement me
+            goto error_recovery;
+        } else if (matches_keyword("endif", tok, lexer)) {
+            // @todo implement me
+            goto error_recovery;
+        } else if (matches_keyword("ifndef", tok, lexer)) {
+            // @todo implement me
+            goto error_recovery;
+        } else if (matches_keyword("define", tok, lexer)) {
+            // @todo implement me.
+            goto error_recovery
+        } else if (matches_word(tok)) {
+            if (interpret_assignment(interpreter, tok)) {
+                return 1;
+            } else if (interpret_rule(interpreter, tok)) {
+                return 1;
+            } else {
+                goto error_recovery;
+            }
         } else if (matches_eol(tok)) {
             sep = "\n";
-        } else {
-            printf("([%.*s]@%d)", tok.len, text(tok, lexer), tok.pos);
-            sep = ", ";
+            continue;
         }
 
-        if (tok.pos >= lexer->endpos) { return 0; }
+        printf("%s", sep);
+        printf("([%.*s]@%d)", tok.len, text(tok, lexer), tok.pos);
+        sep = ", ";
     }
+
     return 0;
+
+error_recovery:
+    printf("error:");
+    print_context_at(lexer, lexer->pos, "error");
+    printf("unknown (skipping whole line)\n");
+    while (lexer->pos < lexer->endpos) {
+        tok = next_token(lexer);
+        if (matches_eol(tok)) {
+            return 1;
+        }
+    }
+    return 1;
 }
 
 void interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional) {
@@ -681,10 +860,10 @@ void interpreter_load_file(Interpreter *interpreter, char *filename, int is_opti
         printf("error: while reading file %s: %s\n", filename, err);
         return;
     }
-    
+
     Lexer lexer = { .input = file_content, .endpos = num_bytes, 0 };
     interpreter->lexer = &lexer;
-    
+
     while (interpret_toplevel(interpreter)) {
         // continue;
     }
@@ -693,8 +872,8 @@ void interpreter_load_file(Interpreter *interpreter, char *filename, int is_opti
     printf("num_bytes: %d\n", num_bytes);
     printf("num_tokens: %d\n", lexer.num_tokens);
     printf("avg_byte_per_token: %f\n", 1.0 * num_bytes / lexer.num_tokens);
-    free(file_content); 
-    
+    free(file_content);
+
     interpreter->lexer = old_lexer;
 }
 
