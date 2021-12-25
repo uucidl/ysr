@@ -71,6 +71,7 @@ typedef struct Interpreter {
         char **names;
         int *names_len;
         char **values;
+        char *is_recursive;
     } variables;
 } Interpreter;
 
@@ -493,12 +494,18 @@ int lookup_variable_index(Interpreter *self, lstr key) {
     return self->variables.n;
 }
 
-lstr lookup_variable(Interpreter *self, lstr key) {
-    if (self->variables.n == 0) return 0;
-    return self->variables.values[lookup_variable_index(self, key)];
+typedef struct VariableLookup {
+  lstr value;
+  int is_recursive;
+} VariableLookup;
+
+VariableLookup lookup_variable(Interpreter *self, lstr key) {
+  if (self->variables.n == 0) return (VariableLookup){ .value = 0 };
+    int i = lookup_variable_index(self, key);
+    return (VariableLookup){ .value = self->variables.values[i], .is_recursive = self->variables.is_recursive[i] };
 }
 
-void set_variable(Interpreter *self, lstr key, lstr value) {
+void set_variable(Interpreter *self, lstr key, lstr value, int is_recursive) {
     int i = lookup_variable_index(self, key);
     assert(0 <= i && i <= self->variables.n);
     if (i == self->variables.n && i >= self->variables.cap) {
@@ -507,6 +514,7 @@ void set_variable(Interpreter *self, lstr key, lstr value) {
         self->variables.names = recallocz(self->variables.names, old_cap, new_cap, sizeof self->variables.names[0]);
         self->variables.names_len = recallocz(self->variables.names_len, old_cap, new_cap, sizeof self->variables.names_len[0]);
         self->variables.values = recallocz(self->variables.values, old_cap, new_cap, sizeof self->variables.values[0]);
+	self->variables.is_recursive = recallocz(self->variables.is_recursive, old_cap, new_cap, sizeof self->variables.is_recursive[0]);
         self->variables.cap = new_cap;
     }
     if (i == self->variables.n) { // new name
@@ -514,6 +522,7 @@ void set_variable(Interpreter *self, lstr key, lstr value) {
         int n = strlen(key);
         self->variables.names_len[i] = n;
         self->variables.names[i] = strdup(key);
+	self->variables.is_recursive[i] = is_recursive;
     }
     char *old_value = self->variables.values[i];
     self->variables.values[i] = strdup(value);
@@ -588,12 +597,12 @@ interpret_reference(Interpreter *interpreter, Charbuf *result) {
         interpreter_error(interpreter, "expected ) at end of function or variable reference", tok);
         return 0;
     }
-    lstr value = lookup_variable(interpreter, variable_name.data);
-    if (!value) {
+    VariableLookup var = lookup_variable(interpreter, variable_name.data);
+    if (!var.value) {
         printf("error: could not find value of variable '%s'\n", variable_name.data);
         return 0;
     }
-    chars_push_nstr(result, strlen(value), value);
+    chars_push_nstr(result, strlen(var.value), var.value);
     return 1;
 }
 
@@ -896,10 +905,10 @@ void interpreter_load_file(Interpreter *interpreter, char *filename, int is_opti
 void
 process_ysr_file(Project *project, char *filename) {
     Interpreter interpreter = { 0 };
-    set_variable(&interpreter, "TOP", project->topdir);
-    set_variable(&interpreter, "YSR.project.file", project->projectfile);
-    set_variable(&interpreter, "YSR.libdir", project->ysrlibdir);
-    set_variable(&interpreter, "HOST_CONFIG_MK", project->host_config_mk);
+    set_variable(&interpreter, "TOP", project->topdir, 0);
+    set_variable(&interpreter, "YSR.project.file", project->projectfile, 0);
+    set_variable(&interpreter, "YSR.libdir", project->ysrlibdir, 0);
+    set_variable(&interpreter, "HOST_CONFIG_MK", project->host_config_mk, 0);
 
     interpreter_load_file(&interpreter, filename, 0);
 
