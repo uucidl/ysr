@@ -68,9 +68,9 @@ typedef struct Interpreter {
     struct {
         int n;
         int cap;
-        lstr *names;
+        char **names;
         int *names_len;
-        lstr *values;
+        char **values;
     } variables;
 } Interpreter;
 
@@ -191,7 +191,7 @@ read_whole_file(lstr const filename, size_t *num_bytes_ptr, char ** err_ptr) {
 
 Token
 eof_token(Lexer *lexer) {
-    return (struct Token) { lexer->endpos };
+    return (struct Token) { .pos = lexer->endpos };
 }
 
 void
@@ -317,7 +317,6 @@ matches_any_eol(Lexer *lexer, int *len_of_eol) {
 void
 consume_line(Lexer *lexer) {
     while (1) {
-        int len;
         if (lexer->input[lexer->pos] == '\\') {
             lexer->pos++;
         } else if (lexer->input[lexer->pos] == '\r') {
@@ -869,7 +868,7 @@ void interpreter_load_file(Interpreter *interpreter, char *filename, int is_opti
     }
 
     printf("Stats for %s:\n", filename);
-    printf("num_bytes: %d\n", num_bytes);
+    printf("num_bytes: %ld\n", (long unsigned)num_bytes);
     printf("num_tokens: %d\n", lexer.num_tokens);
     printf("avg_byte_per_token: %f\n", 1.0 * num_bytes / lexer.num_tokens);
     free(file_content);
