@@ -814,7 +814,7 @@ interpret_toplevel(Interpreter* interpreter) {
             goto error_recovery;
         } else if (matches_keyword("define", tok, lexer)) {
             // @todo implement me.
-            goto error_recovery
+            goto error_recovery;
         } else if (matches_word(tok)) {
             if (interpret_assignment(interpreter, tok)) {
                 return 1;
