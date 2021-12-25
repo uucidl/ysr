@@ -674,7 +674,24 @@ interpret_assignment(Interpreter *self, Token first_token) {
     if (tok.kind == TokenKind_Assignment) {
         printf("AAA: assignment found.");
         print_context_at(lexer, tok.pos, "AAA");
-        printf(" variable name is '%.*s'\n", first_token.len, text(first_token, lexer));
+        printf(" variable name is '%.*s'", first_token.len, text(first_token, lexer));
+	int all_caps = 1;
+	for (int i = 0; all_caps && i < first_token.len; i++) {
+	    char c = lexer->input[first_token.pos + i];
+	    if ('a' <= c && c <= 'z')
+		all_caps = 0;
+	}
+	if (all_caps)
+	    printf(" (parameter for implicit rules or user-overridable parameter)");
+	int c = text(tok, lexer)[0];
+	printf(" flavor:");
+	switch(c) {
+	    break; case '=': printf(" recursively expanded\n");
+	    break; case ':': printf(" simply expanded\n");
+	    break; case '?': printf(" conditional, recursively expanded\n");
+	    break; case '+': printf(" appending (flavor unchanged)\n");
+	    break; default: printf("  unknown type (%c)\n", c);
+	}
 
         while (lexer->pos < lexer->endpos) {
             tok = next_token(lexer);
