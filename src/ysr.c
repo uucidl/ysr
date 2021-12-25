@@ -515,7 +515,7 @@ void set_variable(Interpreter *self, lstr key, lstr value) {
         self->variables.names_len[i] = n;
         self->variables.names[i] = strdup(key);
     }
-    lstr old_value = self->variables.values[i];
+    char *old_value = self->variables.values[i];
     self->variables.values[i] = strdup(value);
     free(old_value);
 }
