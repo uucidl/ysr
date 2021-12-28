@@ -205,7 +205,7 @@ consume_whitespace(Lexer *lexer) {
 
 int
 is_word_at_char(char c) {
-    return ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || '.' /* special variables */;
+    return ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || c == '.' /* special variables */;
 }
 
 int
