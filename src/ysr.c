@@ -118,6 +118,8 @@ chars_wouldgrow(Charbuf *buf, int n) {
 
 void
 chars_push_nstr(Charbuf *buf, size_t n, lstr str) {
+    if (n == 0)
+        return;
     if (chars_wouldgrow(buf, n)) {
         int new_capacity = align_up(greater_of(2*buf->capacity, buf->size + n + 1 /* implicit zero terminator */), 4096);
         buf->data = reallocz(buf->data, buf->capacity, new_capacity);
@@ -198,7 +200,7 @@ eof_token(Lexer *lexer) {
 void
 consume_whitespace(Lexer *lexer) {
     lstr p = lexer->input;
-    while (p[lexer->pos] == ' ') {
+    while (p[lexer->pos] == ' ' || p[lexer->pos] == '\t') {
         lexer->pos++;
     }
 }
@@ -455,7 +457,15 @@ Token next_token(Lexer *lexer) {
 }
 
 int
-matches_keyword(char const* keyword, Token tok, Lexer *lexer) {
+chars_matches_keyword(char const *keyword, Charbuf const buf) {
+    // @slow
+    int n = strlen(keyword);
+    if (buf.size != n) return 0;
+    return 0 == strncmp(buf.data, keyword, n);
+}
+
+int
+token_matches_keyword(char const *keyword, Token tok, Lexer *lexer) {
     // @slow
     int n = strlen(keyword);
     if (tok.len != n) return 0;
@@ -514,7 +524,7 @@ void set_variable(Interpreter *self, lstr key, lstr value, int is_recursive) {
         self->variables.names = recallocz(self->variables.names, old_cap, new_cap, sizeof self->variables.names[0]);
         self->variables.names_len = recallocz(self->variables.names_len, old_cap, new_cap, sizeof self->variables.names_len[0]);
         self->variables.values = recallocz(self->variables.values, old_cap, new_cap, sizeof self->variables.values[0]);
-	self->variables.is_recursive = recallocz(self->variables.is_recursive, old_cap, new_cap, sizeof self->variables.is_recursive[0]);
+        self->variables.is_recursive = recallocz(self->variables.is_recursive, old_cap, new_cap, sizeof self->variables.is_recursive[0]);
         self->variables.cap = new_cap;
     }
     if (i == self->variables.n) { // new name
@@ -522,7 +532,7 @@ void set_variable(Interpreter *self, lstr key, lstr value, int is_recursive) {
         int n = strlen(key);
         self->variables.names_len[i] = n;
         self->variables.names[i] = strdup(key);
-	self->variables.is_recursive[i] = is_recursive;
+        self->variables.is_recursive[i] = is_recursive;
     }
     char *old_value = self->variables.values[i];
     self->variables.values[i] = strdup(value);
@@ -567,6 +577,25 @@ interpreter_free(Interpreter *self) {
     memset(&self->variables, 0, sizeof self->variables);
 }
 
+int
+interpret_function_argument(Interpreter *self, Charbuf *result) {
+    Lexer *lexer = self->lexer;
+    Token tok = { 0 };
+    while (lexer->pos < lexer->endpos) {
+        int old_pos = lexer->pos;
+        tok = next_token(lexer);
+        if (matches_char(tok, ',', lexer)) {
+            break;
+        } else if (matches_char(tok, ')', lexer)) {
+            lexer_rewind(lexer, old_pos);
+            break;
+        } else {
+            chars_push_nstr(result, tok.len, text(tok, lexer));
+        }
+    }
+    return 1;
+}
+
 // either variable or function
 int
 interpret_reference(Interpreter *interpreter, Charbuf *result) {
@@ -580,7 +609,8 @@ interpret_reference(Interpreter *interpreter, Charbuf *result) {
     Charbuf variable_name = { 0 };
     while (lexer->pos < lexer->endpos) {
         tok = next_token(lexer);
-        if (matches_char(tok, ')', lexer)) {
+        if (matches_char(tok, ')', lexer) ||
+            matches_char(tok, ' ', lexer)) {
             break;
         } else if (matches_char(tok, '$', lexer)) { // references can be nested
             Charbuf subreference_result = { 0 };
@@ -593,10 +623,65 @@ interpret_reference(Interpreter *interpreter, Charbuf *result) {
             chars_push_nstr(&variable_name, tok.len, text(tok, lexer));
         }
     }
+
+    if (matches_char(tok, ' ', lexer)) {
+        // a function starts with a name, then a delimiter then its arguments.
+
+        // builtins:
+        if (chars_matches_keyword("error", variable_name) ||
+            chars_matches_keyword("info", variable_name) ||
+            chars_matches_keyword("warning", variable_name)) {
+            print_context_at(lexer, tok.pos, "FFF");
+            printf("$(%.*s...) control function\n", variable_name.size, variable_name.data);
+        }
+        else if (chars_matches_keyword("addprefix", variable_name) ||
+                 chars_matches_keyword("addsuffix", variable_name)) {
+            printf("$(%.*s...) text function\n", variable_name.size, variable_name.data);
+        }
+        else if (chars_matches_keyword("patsubst", variable_name)) {
+            printf("$(%.*s...) substitution function\n", variable_name.size, variable_name.data);
+        }
+        // user-defined
+        else if (chars_matches_keyword("call", variable_name)) {
+            int function_pos = tok.pos;
+            Charbuf user_function_name = { 0 };
+            interpret_function_argument(interpreter, &user_function_name);
+
+            print_context_at(lexer, function_pos, "FFF");
+            printf("call to user defined function '%s'\n", user_function_name.data);
+
+            chars_free(&user_function_name);
+        } else {
+            // not a known function...
+            print_context_at(lexer, tok.pos, "FFF");
+            printf("Unknown function '%.*s'\n", variable_name.size, variable_name.data);
+        }
+
+        // consume arguments to function:
+        Charbuf arguments = { 0 };
+        while (lexer->pos < lexer->endpos) {
+            tok = next_token(lexer);
+            if (matches_char(tok, ')', lexer)) {
+                break;
+            } else if (matches_char(tok, '$', lexer)) { // references can be nested
+                Charbuf subreference_result = { 0 };
+                int subreference = interpret_reference(interpreter, &subreference_result);
+                if (!subreference)
+                    return 0;
+                chars_push_nstr(&arguments, subreference_result.size, subreference_result.data);
+                chars_free(&subreference_result);
+            } else {
+                chars_push_nstr(&arguments, tok.len, text(tok, lexer));
+            }
+        }
+        return 1;
+    }
+
     if (!matches_char(tok, ')', lexer)) {
         interpreter_error(interpreter, "expected ) at end of function or variable reference", tok);
         return 0;
     }
+
     VariableLookup var = lookup_variable(interpreter, variable_name.data);
     if (!var.value) {
         printf("error: could not find value of variable '%s'\n", variable_name.data);
@@ -684,23 +769,23 @@ interpret_assignment(Interpreter *self, Token first_token) {
         printf("AAA: assignment found.");
         print_context_at(lexer, tok.pos, "AAA");
         printf(" variable name is '%.*s'", first_token.len, text(first_token, lexer));
-	int all_caps = 1;
-	for (int i = 0; all_caps && i < first_token.len; i++) {
-	    char c = lexer->input[first_token.pos + i];
-	    if ('a' <= c && c <= 'z')
-		all_caps = 0;
-	}
-	if (all_caps)
-	    printf(" (parameter for implicit rules or user-overridable parameter)");
-	int c = text(tok, lexer)[0];
-	printf(" flavor:");
-	switch(c) {
-	    break; case '=': printf(" recursively expanded\n");
-	    break; case ':': printf(" simply expanded\n");
-	    break; case '?': printf(" conditional, recursively expanded\n");
-	    break; case '+': printf(" appending (flavor unchanged)\n");
-	    break; default: printf("  unknown type (%c)\n", c);
-	}
+        int all_caps = 1;
+        for (int i = 0; all_caps && i < first_token.len; i++) {
+            char c = lexer->input[first_token.pos + i];
+            if ('a' <= c && c <= 'z')
+                all_caps = 0;
+        }
+        if (all_caps)
+            printf(" (parameter for implicit rules or user-overridable parameter)");
+        int c = text(tok, lexer)[0];
+        printf(" flavor:");
+        switch(c) {
+            break; case '=': printf(" recursively expanded\n");
+            break; case ':': printf(" simply expanded\n");
+            break; case '?': printf(" conditional, recursively expanded\n");
+            break; case '+': printf(" appending (flavor unchanged)\n");
+            break; default: printf("  unknown type (%c)\n", c);
+        }
 
         while (lexer->pos < lexer->endpos) {
             tok = next_token(lexer);
@@ -814,31 +899,32 @@ interpret_toplevel(Interpreter* interpreter) {
     char const* sep = "\n";
     Token tok = { 0 };
     while (lexer->pos < lexer->endpos) {
+        consume_whitespace(lexer);
         tok = next_token(lexer); // first token in the line.
 
         // parse directives:
-        if (matches_keyword("include", tok, lexer) ||
-            matches_keyword("-include", tok, lexer) ||
-            matches_keyword("sinclude", tok, lexer)) {
+        if (token_matches_keyword("include", tok, lexer) ||
+            token_matches_keyword("-include", tok, lexer) ||
+            token_matches_keyword("sinclude", tok, lexer)) {
             int is_optional = text(tok, lexer)[0] != 'i';
             interpret_include(interpreter, is_optional);
             return 1;
-        } else if (matches_keyword("ifeq", tok, lexer)) {
+        } else if (token_matches_keyword("ifeq", tok, lexer)) {
             // @todo implement me.
             goto error_recovery;
-        } else if (matches_keyword("ifneq", tok, lexer)) {
+        } else if (token_matches_keyword("ifneq", tok, lexer)) {
             // @todo implement me
             goto error_recovery;
-        } else if (matches_keyword("else", tok, lexer)) {
+        } else if (token_matches_keyword("else", tok, lexer)) {
             // @todo implement me
             goto error_recovery;
-        } else if (matches_keyword("endif", tok, lexer)) {
+        } else if (token_matches_keyword("endif", tok, lexer)) {
             // @todo implement me
             goto error_recovery;
-        } else if (matches_keyword("ifndef", tok, lexer)) {
+        } else if (token_matches_keyword("ifndef", tok, lexer)) {
             // @todo implement me
             goto error_recovery;
-        } else if (matches_keyword("define", tok, lexer)) {
+        } else if (token_matches_keyword("define", tok, lexer)) {
             // @todo implement me.
             goto error_recovery;
         } else if (matches_word(tok)) {
