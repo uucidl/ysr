@@ -13,19 +13,41 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 
 #include "wyhash.h"
 
-static int emit_debug_log = 0;
+typedef struct Program_Options {
+    bool emit_debug_log;
+    bool list_unique_functions;
+} Program_Options;
+
+Program_Options g_program_options = {
+    .emit_debug_log = false,
+    .list_unique_functions = true,
+};
+
+
+char const * Ysr_Functions[] = {
+    "ysr-add-c-lib-shared", // of (name)
+    "ysr-add-c-lib-static",
+    "ysr-add-c-console-prog", // of (name)
+    "require-directory",
+    "mk-c-sharedlib-rule", // of (name)
+    "mk-iplug-rule", // of (name)
+    "objs-to-deps", // of (list of object file names)
+    "ln2-info", // of (string)
+};
+
 
 typedef char const *lstr;
 
 typedef struct BufHeader {
-    int size;
-    int capacity;
+    size_t size;
+    size_t capacity;
 } BufHeader;
 
 #define anew(hdr, data_ptr) do { \
@@ -102,8 +124,11 @@ typedef struct Build {
 
 // You can't really parse and lex makefiles without also interpreting them, since variables definitions have direct influences on
 typedef struct Interpreter {
+    Project *project;
+
     Lexer *lexer;
-    char* filename;
+    char *filename;
+    char *dirname;
     Charbuf tmpbuf;
 
     struct {
@@ -123,15 +148,18 @@ hash(char const *bytes, size_t n) {
     return wyhash(bytes, n, 0, _wyp);
 }
 
-int align_up(int size, int alignment) {
+int
+align_up(int size, int alignment) {
     return (size + alignment - 1) & ~(alignment - 1);
 }
 
-int greater_of(int a, int b) {
+int
+greater_of(int a, int b) {
     return a > b ? a : b;
 }
 
-void* reallocz(void *ptr, size_t old_size, size_t size) {
+void*
+reallocz(void *ptr, size_t old_size, size_t size) {
     if (old_size != 0) {
         char *bytes = ptr;
         assert(((unsigned char)bytes[old_size]) == 0xfe);
@@ -147,7 +175,8 @@ void* reallocz(void *ptr, size_t old_size, size_t size) {
     return ptr;
 }
 
-void* recallocz(void *ptr, size_t old_num, size_t new_num, size_t elem_size) {
+void*
+recallocz(void *ptr, size_t old_num, size_t new_num, size_t elem_size) {
     return reallocz(ptr, old_num * elem_size, new_num * elem_size);
 }
 
@@ -165,7 +194,7 @@ chars_free(Charbuf *buf) {
 
 // returns 1 if it needs a realloc for n additional bytes
 int
-buf_wouldgrow(BufHeader *buf, int n) {
+buf_wouldgrow(BufHeader *buf, size_t n) {
     return buf->capacity - buf->size < n;
 }
 
@@ -217,33 +246,69 @@ void arena_free(FixedSizeArena *arena) {
     chars_free(&arena->memory);
 }
 
+typedef enum ErrorCode {
+    ErrorCode_None,
+    ErrorCode_FileNotFound,
+    ErrorCode_FileReadFailed,
+} ErrorCode;
+
+typedef struct Error
+{
+    ErrorCode code;
+    char *message;
+    int errno_value;
+} Error;
+
+void
+error_assert_none(Error *error) {
+    if (error->code != ErrorCode_None) {
+        printf("Unrecoverable: unprocessed error %d:%s (errno: %d) found\n", error->code, error->message, error->errno_value);
+        assert(0);
+        exit(1);
+    }
+}
+
+void
+error_set(Error *error, ErrorCode code, char *message) {
+    error_assert_none(error);
+    error->code = code;
+    error->message = message;
+    error->errno_value = errno;
+}
+
+void
+error_clear(Error *error) {
+    *error = (Error){ 0 };
+}
+
+void
+error_free(Error *error) {
+    error_assert_none(error);
+}
+   
 static char *
-read_whole_file(lstr const filename, size_t *num_bytes_ptr, char ** err_ptr) {
+read_whole_file(lstr const filename, size_t *num_bytes_ptr, Error *error) {
     char *result = 0;
     char *buffer = 0;
     int errc = 0;
 
     *num_bytes_ptr = 0;
-    *err_ptr = 0;
 
     FILE *file = fopen(filename, "rb");
     if (!file) {
-        *err_ptr = "could not open file with fopen";
-        perror(*err_ptr);
+        error_set(error, ErrorCode_FileNotFound, "could not open file with fopen");
         return 0;
     }
 
     errc = fseek(file, 0, SEEK_END);
     if (errc) {
-        *err_ptr = "could not seek to the end of the file with fseek";
-        perror(*err_ptr);
+        error_set(error, ErrorCode_FileReadFailed, "could not seek to the end of the file with fseek");
         goto return_with_file_open;
     }
 
     int num_bytes_or_error_if_negative = ftell(file);
     if (num_bytes_or_error_if_negative < 0) {
-        *err_ptr = "could not get the size of the file with ftell";
-        perror(*err_ptr);
+        error_set(error, ErrorCode_FileReadFailed, "could not get the size of the file with ftell");
         goto return_with_file_open;
     }
 
@@ -252,17 +317,15 @@ read_whole_file(lstr const filename, size_t *num_bytes_ptr, char ** err_ptr) {
     buffer = calloc(num_bytes + 1 /* null terminator */, 1);
     errc = fseek(file, 0, SEEK_SET); // rewind to beginning.
     if (errc) {
-        *err_ptr = "could not rewind to beginning of file";
-        perror(*err_ptr);
+        error_set(error, ErrorCode_FileReadFailed, "could not rewind to beginning of file");
         goto return_with_file_open;
     }
     if (fread(buffer, num_bytes, 1, file) < 1) {
         if (feof(file)) {
-            *err_ptr = "encountered end of file during fread while reading all the bytes";
+            error_set(error, ErrorCode_FileReadFailed, "encountered end of file during fread while reading all the bytes");
             goto return_with_file_open;
         } else {
-            *err_ptr = "could not read entire file with fread";
-            perror(*err_ptr);
+            error_set(error, ErrorCode_FileReadFailed, "could not read entire file with fread");
         }
         goto return_with_file_open;
     }
@@ -537,7 +600,8 @@ next_token_internal(Lexer *lexer) {
     return eof_token(lexer);
 }
 
-Token next_token(Lexer *lexer) {
+Token
+next_token(Lexer *lexer) {
     Token tok = next_token_internal(lexer);
     lexer->num_tokens++;
     return tok;
@@ -595,7 +659,7 @@ build_add_module(Build *build, Interpreter *interpreter, lstr module_name) {
 int
 chars_matches_keyword(char const *keyword, Charbuf const chars) {
     // @slow
-    int n = strlen(keyword);
+    size_t n = strlen(keyword);
     if (chars.header.size != n) return 0;
     return 0 == strncmp(chars.data, keyword, n);
 }
@@ -666,10 +730,10 @@ void set_variable(Interpreter *self, lstr key, lstr value, int is_recursive) {
     }
     if (i == self->variables.n) { // new name
         self->variables.n++;
-        int n = strlen(key);
+        size_t n = strlen(key);
         self->variables.names_len[i] = n;
         self->variables.names[i] = strdup(key);
-        self->variables.is_recursive[i] = is_recursive;
+        self->variables.is_recursive[i] = (char)is_recursive;
     }
     char *old_value = self->variables.values[i];
     self->variables.values[i] = strdup(value);
@@ -773,7 +837,7 @@ interpret_reference(Interpreter *interpreter, Charbuf *result) {
             chars_matches_keyword("info", variable_name) ||
             chars_matches_keyword("warning", variable_name)) {
             // no-op
-            if (emit_debug_log) {
+            if (g_program_options.emit_debug_log) {
                 print_context_at(lexer, tok.pos, "FFF");
                 printf("$(%.*s...) control function\n", variable_name.header.size, variable_name.data);
             }
@@ -865,17 +929,59 @@ interpret_filename(Interpreter *interpreter, Charbuf *result) {
     return 1;
 }
 
-void interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional);
+void interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional, Error *error);
 
 void
-interpret_find_and_load_file(Interpreter *interpreter, char *filename_spec, int is_optional) {
+interpret_include_find_and_load_file(Interpreter *interpreter, char *filename_spec, int is_optional) {
     // @todo implement lookup in various include-dirs.
-    interpreter_load_file(interpreter, filename_spec, is_optional);
+    
+    int must_break = 0 == strcmp(filename_spec, "./config.mk");
+    
+    typedef struct IncludeDir { size_t n; char const *path; } IncludeDir;
+
+    IncludeDir include_dirs[] = {
+        { 0, "" }, // naked path, to load absolute paths
+        { strlen(interpreter->dirname), interpreter->dirname }, // @todo dumb to recalculate strlen each time here,
+        { strlen(interpreter->project->ysrlibdir), interpreter->project->ysrlibdir },
+    };
+
+    Error error = { 0 };
+    Charbuf path = { 0 };
+
+    for (IncludeDir *p = &include_dirs[0], *l = &include_dirs[sizeof include_dirs / sizeof include_dirs[0]];
+        p != l;
+        p++)
+    {
+        buf_reset(&path.header);
+        chars_push_nstr(&path, p->n, p->path);
+        if (path.header.size > 0) {
+            char delimiter = path.data[path.header.size - 1];
+            if ((delimiter != '/') && (delimiter != '\\')) {
+                chars_push_nstr(&path, 1, "/");
+            }
+        }
+        chars_push_nstr(&path, strlen(filename_spec), filename_spec);
+
+        interpreter_load_file(interpreter, path.data, is_optional, &error);
+        if (error.code == ErrorCode_FileNotFound && p + 1 != l) {
+            error_clear(&error);
+            continue;
+        }
+        break;
+    }
+    
+    if (error.code != ErrorCode_None) {
+        printf("error: while including file %s, could not be found in any of the include directories, last path tried was %s\n", filename_spec, path.data);
+        error_clear(&error);
+    }
+
+    error_free(&error);
+    chars_free(&path);
 }
 
 void
 interpret_include(Interpreter *interpreter, int is_optional) {
-    if (emit_debug_log) {
+    if (g_program_options.emit_debug_log) {
         printf("III: include directive here in this line: ");
         print_context_at(interpreter->lexer, interpreter->lexer->pos, 0);
     }
@@ -885,7 +991,7 @@ interpret_include(Interpreter *interpreter, int is_optional) {
     if (!interpret_filename(interpreter, &interpreter->tmpbuf)) {
         return;
     }
-    interpret_find_and_load_file(interpreter, interpreter->tmpbuf.data, is_optional);
+    interpret_include_find_and_load_file(interpreter, interpreter->tmpbuf.data, is_optional);
 
     Lexer *lexer = interpreter->lexer;
     while (lexer->pos < lexer->endpos) {
@@ -899,7 +1005,7 @@ interpret_include(Interpreter *interpreter, int is_optional) {
         }
         buf_reset(&interpreter->tmpbuf.header);
         interpret_filename(interpreter, &interpreter->tmpbuf);
-        interpret_find_and_load_file(interpreter, interpreter->tmpbuf.data, is_optional);
+        interpret_include_find_and_load_file(interpreter, interpreter->tmpbuf.data, is_optional);
     }
 }
 
@@ -931,7 +1037,7 @@ interpret_assignment(Interpreter *self, Token first_token) {
     } while (matches_space(tok, lexer));
 
     if (tok.kind == TokenKind_Assignment) {
-        if (emit_debug_log) {
+        if (g_program_options.emit_debug_log) {
             printf("AAA: assignment found.");
             print_context_at(lexer, tok.pos, "AAA");
             printf(" variable name is '%.*s'", first_token.len, text(first_token, lexer));
@@ -943,20 +1049,20 @@ interpret_assignment(Interpreter *self, Token first_token) {
             if ('a' <= c && c <= 'z')
                 all_caps = 0;
         }
-        if (emit_debug_log)
+        if (g_program_options.emit_debug_log)
             if (all_caps)
                 printf(" (parameter for implicit rules or user-overridable parameter)");
         int c = text(tok, lexer)[0];
 
-        if (emit_debug_log)
+        if (g_program_options.emit_debug_log)
             printf(" flavor:");
 
         int is_recursive = c == ':' ? 0 : 1;
         switch (c) {
-            break; case ':': if (emit_debug_log) printf(" simply expanded\n");
-            break; case '=': if (emit_debug_log) printf(" recursively expanded\n");
-            break; case '?': if (emit_debug_log) printf(" conditional, recursively expanded\n");
-            break; case '+': if (emit_debug_log) printf(" appending (flavor unchanged)\n");
+            break; case ':': if (g_program_options.emit_debug_log) printf(" simply expanded\n");
+            break; case '=': if (g_program_options.emit_debug_log) printf(" recursively expanded\n");
+            break; case '?': if (g_program_options.emit_debug_log) printf(" conditional, recursively expanded\n");
+            break; case '+': if (g_program_options.emit_debug_log) printf(" appending (flavor unchanged)\n");
             break; default: {
                 print_error_at(lexer, first_token.pos);
                 printf("  unknown type (%c)\n", c);
@@ -1076,7 +1182,7 @@ interpret_rule(Interpreter *self, Token first_token) {
     }
 
     lstr target_name = target_buf.data;
-    if (emit_debug_log) {
+    if (g_program_options.emit_debug_log) {
         printf("RRR: found rule");
         print_context_at(lexer, first_token.pos, "RRR");
         printf("rule here has target name '%s'\n", target_name);
@@ -1171,21 +1277,36 @@ error_recovery:
     return 1;
 }
 
-void interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional) {
+void
+interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional, Error *error) {
     Lexer *old_lexer = interpreter->lexer;
-
     char *old_filename = interpreter->filename;
+    char *old_dirname = interpreter->dirname;
 
     size_t num_bytes = 0;
-    char* err = 0;
-    char *file_content = read_whole_file(filename, &num_bytes, &err);
-    if (err) {
-        if (is_optional) return; // silent
-        printf("error: while reading file %s: %s\n", filename, err);
+    char *file_content = read_whole_file(filename, &num_bytes, error);
+    if (error->code != ErrorCode_None) {
+        // @todo Logic can be moved to the caller.
+        if (is_optional) {
+            error_clear(error);
+            return; // silent
+        }
         return;
     }
 
+    // Switch interpreter to work on this file as its current file:
     interpreter->filename = filename;
+    { // Calculate dirname
+        char * const f = strdup(interpreter->filename);
+        char *l = f;
+        for (char *p = f; *p; p++) {
+            char c = *p;
+            if ((c == '/') || (c == '\\')) { l = p; }
+        }
+        l[1] = '\0';
+        interpreter->dirname = f;
+    }
+
     Lexer lexer = { .input = file_content, .endpos = num_bytes, 0 };
     interpreter->lexer = &lexer;
 
@@ -1200,6 +1321,7 @@ void interpreter_load_file(Interpreter *interpreter, char *filename, int is_opti
     free(file_content);
 
     interpreter->filename = old_filename;
+    interpreter->dirname = old_dirname;
     interpreter->lexer = old_lexer;
 }
 
@@ -1207,6 +1329,9 @@ void
 process_ysr_file(Project *project, char *filename) {
     Build build = { 0, };
     Interpreter interpreter = { 0, };
+
+    interpreter.project = project;
+
     set_variable(&interpreter, "TOP", project->topdir, 0);
     set_variable(&interpreter, "YSR.project.file", project->projectfile, 0);
     set_variable(&interpreter, "YSR.libdir", project->ysrlibdir, 0);
@@ -1218,7 +1343,9 @@ process_ysr_file(Project *project, char *filename) {
 
     interpreter.build = &build;
 
-    interpreter_load_file(&interpreter, filename, 0);
+    Error error = { 0 };
+    interpreter_load_file(&interpreter, filename, 0, &error);
+    error_free(&error);
 
     build_free(&build);
     interpreter_free(&interpreter);
@@ -1233,6 +1360,8 @@ main(void) {
         .host_config_mk = "h:/ln2/trunk/ysr/local-config.mk",
     };
     char *filenames_data[] = {
+        // we'll take this project as our example for now -2024-05
+        //
         "h:/ln2/trunk/plugins/Gordia/Makefile",
     };
     size_t num_filenames = sizeof filenames_data / sizeof filenames_data[0];
