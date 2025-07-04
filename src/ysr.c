@@ -12,8 +12,8 @@
 //
 
 #include <assert.h>
-#include <stdio.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -28,24 +28,63 @@ Program_Options g_program_options = {
     .emit_debug_log = false,
 };
 
+inline uint64_t
+bits(uint64_t x, int start, int len) {
+    uint64_t mask = (1 << len) - 1;
+    return (x >> start) & mask;    
+}
 
-char const * Ysr_Functions[] = {
-    "ysr-add-c-lib-shared", // of (name)
-    "ysr-add-c-lib-static",
-    "ysr-add-c-console-prog", // of (name)
-    "require-directory",
-    "mk-c-sharedlib-rule", // of (name)
-    "mk-iplug-rule", // of (name)
-    "objs-to-deps", // of (list of object file names)
-    "ln2-info", // of (string)
+enum Mk_Function_Flags {
+    MFF_IS_MODULE       = 1 << 0,
+    MFF_IS_IPLUG        = 1 << 1,
 };
 
+typedef struct Mk_Function_Options {
+    bool defines_module;
+} Mk_Function_Options;
+
+uint64_t
+pack_mk_function_flags(Mk_Function_Options x) {
+    return (x.defines_module ? MFF_IS_MODULE : 0);
+}
+
+Mk_Function_Options
+unpack_mk_function_flags(uint64_t x) {
+    return (struct Mk_Function_Options) {
+        .defines_module = x & MFF_IS_MODULE,
+    };
+}
+
+typedef struct Mk_Function {
+    char const * name;
+    char const * src_makefile;
+    
+    uint64_t flags;
+} Mk_Function;
+
+Mk_Function Ysr_Functions[] = {
+    { "ysr-add-c-lib-shared", "lib/templates/library.mk", MFF_IS_MODULE, }, // of (name)
+    { "ysr-add-c-lib-static", "lib/templates/library.mk", MFF_IS_MODULE, },
+    { "ysr-add-c++-prog", "lib/templates/program.mk", MFF_IS_MODULE, },
+    { "ysr-add-c-console-prog", "lib/templates/program.mk", MFF_IS_MODULE, }, // of (name)
+    { "require-directory" },
+    { "objs-to-deps" }, // of (list of object file names)
+    { "ln2-info" }, // of (string)
+
+    // Not sure if this is legit:
+    { "mk-c-sharedlib-rule" }, // of (name)
+};
+
+
+Mk_Function Ln2_Functions[] = {
+    { "mk-iplug-rule", "third-party/wdl.mk", MFF_IS_MODULE | MFF_IS_IPLUG, }, // of (name)
+};
 
 typedef char const *lstr;
 
 typedef struct BufHeader {
-    size_t size;
-    size_t capacity;
+    int size;
+    int capacity;
 } BufHeader;
 
 #define anew(hdr, data_ptr) do { \
@@ -65,6 +104,24 @@ typedef struct BufHeader {
     hdr.capacity = new_capacity; \
 } while (0)
 
+#define aadd(hdr, data_ptr, data) do { \
+    agrow(hdr, data_ptr, hdr.size + 1); \
+    data_ptr[hdr.size] = data; \
+    hdr.size++; \
+} while (0)
+
+#define afor(varname, hdr) for (size_t (varname) = 0; (varname) < (hdr).size; (varname)++)
+
+inline void assert_index(BufHeader hdr, size_t i) {
+    assert(0 <= i && i < hdr.size);
+}
+
+int smallsize(size_t x) {
+  assert(x < INT_MAX);
+  if (x >= INT_MAX) { abort(); }
+  return (int) x;
+}
+
 typedef struct Charbuf {
     BufHeader header;
     char *data;
@@ -83,11 +140,15 @@ typedef struct Project {
 
 typedef struct Lexer {
     // input data:
+    char const * filename;
     lstr input;
     int endpos;
+    bool expects_recipe;
 
     int pos;
     int logical_line;
+    int physical_line;
+
     char recipe_prefix_char; // by default \t but can be changed with .RECIPEPREFIX
 
     int toplevel_pos; // where the current toplevel form started
@@ -111,7 +172,7 @@ typedef struct Token {
 
 typedef struct Module {
     lstr name;
-    int is_confirmed_to_be_a_module;
+    bool is_defined;
 } Module;
 
 typedef struct Build {
@@ -120,6 +181,13 @@ typedef struct Build {
     Module *modules;
     uint64_t *module_name_hashes;
 } Build;
+
+
+// @todo reconcile with Module and Build
+typedef struct Module2 {
+    Charbuf name;
+    uint64_t flags; // Mk_Function_Flags
+} Module2;
 
 
 // You can't really parse and lex makefiles without also interpreting them, since variables definitions have direct influences on
@@ -131,14 +199,20 @@ typedef struct Interpreter {
     char *dirname;
     Charbuf tmpbuf;
 
+    // > A variable is a name defined in a makefile to represent a string of text, called the variable’s value. 
+    // > (...) (In some other versions of make, variables are called macros.) 
     struct {
-        int n;
-        int cap;
+        BufHeader header;
         char **names;
         int *names_len;
         char **values;
         char *is_recursive;
     } variables;
+
+    struct {
+        BufHeader header;
+        Module2 *data;
+    } modules;
 
     Build *build; // output of our interpreter.
 } Interpreter;
@@ -190,6 +264,7 @@ chars_free(Charbuf *buf) {
     buf_reset(&buf->header);
     free(buf->data);
     buf->header = (BufHeader){ 0 , };
+    buf->data = 0;
 }
 
 // returns 1 if it needs a realloc for n additional bytes
@@ -208,7 +283,7 @@ chars_reserve(Charbuf *charbuf, size_t new_capacity) {
     BufHeader *buf = &charbuf->header;
     assert(new_capacity >= (size_t)buf->size);
     charbuf->data = reallocz(charbuf->data, buf->capacity, new_capacity);
-    buf->capacity = new_capacity;
+    buf->capacity = smallsize(new_capacity);
 }
 
 void
@@ -216,14 +291,14 @@ chars_push_nstr(Charbuf *chars, size_t n, lstr str) {
     if (n == 0)
         return;
     BufHeader *buf = (BufHeader*)chars;
-    int needed_n = n + 1 /* implicit zero terminator */;
+    int needed_n = smallsize(n + 1 /* implicit zero terminator */);
     if (buf_wouldgrow(buf, needed_n)) {
         int new_capacity = buf_fit_capacity(*buf, needed_n);
         chars_reserve(chars, new_capacity);
     }
     memcpy(&chars->data[buf->size], &str[0], n);
     chars->data[buf->size + n] = '\0'; // always null terminate the strings for compat with C
-    buf->size += n;
+    buf->size += smallsize(n);
 }
 
 void
@@ -368,6 +443,11 @@ is_recipe_at_char(Lexer *lexer, char c) {
     return c == '\t';
 }
 
+int
+is_number_at_char(char c) {
+    return ('0' <= c && c <= '9');
+}
+
 void
 consume_word(Lexer *lexer) {
     lstr p = lexer->input;
@@ -394,15 +474,15 @@ print_context_at(Lexer *lexer, int pos, char const* optional_prefix) {
         line_end_pos++;
     }
 
-    printf("\ntop:%d\n", lexer->toplevel_pos);
+    printf("\n%s:top:%d\n", lexer->filename, lexer->toplevel_pos);
     if (optional_prefix)
         printf("%s: ", optional_prefix);
-    printf("%d: ", pos);
+    printf("%s:%d: ", lexer->filename, pos);
 
     printf("%.*s\n", line_end_pos - line_start_pos, &lexer->input[line_start_pos]);
     if (optional_prefix)
         printf("%s: ", optional_prefix);
-    printf("%d: ", pos);
+    printf("%s:%d: ", lexer->filename, pos);
 
     printf("%*s^", pos - line_start_pos, "");
 }
@@ -502,6 +582,66 @@ next_token_internal(Lexer *lexer) {
     while (1) {
         char c = p[lexer->pos];
         switch (c) {
+            // > Makefiles use a “line-based” syntax in which the newline character is special and marks the end of a statement. GNU make has no limit on the length of a statement line, up to the amount of memory in your computer.
+            //
+            // > However, it is difficult to read lines which are too long to display without wrapping or scrolling. So, you can format your makefiles for readability by adding newlines into the middle of a statement: you do this by escaping the internal newlines with a backslash (\) character. Where we need to make a distinction we will refer to “physical lines” as a single line ending with a newline (regardless of whether it is escaped) and a “logical line” being a complete statement including all escaped newlines up to the first non-escaped newline.
+            //
+            // > The way in which backslash/newline combinations are handled depends on whether the statement is a recipe line or a non-recipe line. Handling of backslash/newline in a recipe line is discussed later (see Splitting Recipe Lines). 
+            //
+            // From: https://www.gnu.org/software/make/manual/make.html#index-splitting-long-lines
+
+            case 0: {
+                return eof_token(lexer);
+            }
+
+            case '\r': {
+                Token newline = { .pos = lexer->pos, .kind = TokenKind_Eol };
+                lexer->pos++;
+                if (expect_eol(lexer)) {
+                    lexer->logical_line++;
+                    lexer->physical_line++;
+                    terminate_token(lexer, &newline);
+                    return newline;
+                }
+            } break;
+
+            case '\n': {
+                Token newline = { .pos = lexer->pos, .kind = TokenKind_Eol };
+                lexer->pos++;
+                lexer->logical_line++;
+                lexer->physical_line++;
+                terminate_token(lexer, &newline);
+                return newline;
+            } break;
+
+            case '\\': {
+                // > Outside of recipe lines, backslash/newlines are converted into a single space character. Once that is done, all whitespace around the backslash/newline is condensed into a single space: this includes all whitespace preceding the backslash, all whitespace at the beginning of the line after the backslash/newline, and any consecutive backslash/newline combinations.                
+
+                lexer->pos++;
+                if (lexer->input[lexer->pos] == '\r') {
+                    lexer->pos++;
+                }
+                Token escaped_char = { .pos = lexer->pos, .kind = TokenKind_Escape };
+                expect_eol(lexer);
+                // We use the \n as our escape character, which should be treated like whitespace.
+
+                lexer->physical_line++;
+
+                terminate_token(lexer, &escaped_char);
+                return escaped_char;
+            }
+
+            case '0': case '1': case '2': case '3':
+            case '4': case '5': case '6': case '7':
+            case '8': case '9': {
+                Token number = { .pos = lexer->pos };
+                lexer->pos++;
+                while (is_number_at_char(lexer->input[lexer->pos])) {
+                    lexer->pos++;
+                }
+                terminate_token(lexer, &number);
+                return number;
+            }
             case '.': {
                 Token special_variable = { .pos = lexer->pos };
                 consume_word(lexer);
@@ -517,16 +657,6 @@ next_token_internal(Lexer *lexer) {
 
                 return pattern;
             }
-            case '\\': {
-                lexer->pos++;
-                if (lexer->input[lexer->pos] == '\r') {
-                    lexer->pos++;
-                }
-                Token escaped_char = { .pos = lexer->pos, .kind = TokenKind_Escape };
-                expect_eol(lexer);
-                terminate_token(lexer, &escaped_char);
-                return escaped_char;
-            }
             case '#': consume_line(lexer); break;
             case ' ': {
                 Token space = { .pos = lexer->pos };
@@ -534,23 +664,7 @@ next_token_internal(Lexer *lexer) {
                 terminate_token(lexer, &space);
                 return space;
             }
-            case '\r': {
-                Token newline = { .pos = lexer->pos, .kind = TokenKind_Eol };
-                lexer->pos++;
-                if (expect_eol(lexer)) {
-                    lexer->logical_line++;
-                    terminate_token(lexer, &newline);
-                    return newline;
-                }
-            } break;
-            case '\n': {
-                Token newline = { .pos = lexer->pos, .kind = TokenKind_Eol };
-                lexer->pos++;
-                lexer->logical_line++;
-                terminate_token(lexer, &newline);
-                return newline;
-            } break;
-            case 0: return eof_token(lexer);
+
             case ':': {
                 // either rule or assignment
                 if (lexer->input[lexer->pos + 1] == '=') {
@@ -596,7 +710,10 @@ next_token_internal(Lexer *lexer) {
                     return minus_token;
                 }
             } break;
-            case '$': case '(': case ')': case ',': case '@': case '^': case ';': {
+            case '$': case '(': case ')': case ',': 
+            case '@': case '^': case ';': case '/': 
+            case '[': case ']': case '_': case '"': 
+            case '\'': case '{': case '}': {
                 // these tokens stand for themselves.
                 Token char_token = { .pos = lexer->pos++, .len = 1 };
                 return char_token;
@@ -608,7 +725,13 @@ next_token_internal(Lexer *lexer) {
             } break;
             default:
                 if (is_recipe_at_char(lexer, c)) {
-                    if (lexer->pos == 0 || lexer->input[lexer->pos - 1] == '\n') {
+                    // > One of the few ways in which make does interpret recipes is checking for a backslash just before the newline. As in normal makefile syntax, a single logical recipe line can be split into multiple physical lines in the makefile by placing a backslash before each newline. A sequence of lines like this is considered a single recipe line, and one instance of the shell will be invoked to run it.
+                    //
+                    // > However, in contrast to how they are treated in other places in a makefile (see Splitting Long Lines), backslash/newline pairs are not removed from the recipe. Both the backslash and the newline characters are preserved and passed to the shell. How the backslash/newline is interpreted depends on your shell. If the first character of the next line after the backslash/newline is the recipe prefix character (a tab by default; see Other Special Variables), then that character (and only that character) is removed. Whitespace is never added to the recipe. 
+                    //
+                    // From: https://www.gnu.org/software/make/manual/make.html#Splitting-Recipe-Lines
+
+                    if (lexer->expects_recipe) {
                         Token recipe_token = { .pos = lexer->pos, };
                         consume_line(lexer);
                         recipe_token.kind = TokenKind_Recipe;
@@ -635,6 +758,14 @@ next_token_internal(Lexer *lexer) {
     return eof_token(lexer);
 }
 
+// It's kind of a redflag if you have to use this function in the parser...
+Token
+lexer_token_at(Lexer *lexer, int pos) {
+    Lexer temp_lexer = *lexer;
+    temp_lexer.pos = pos;
+    return next_token_internal(&temp_lexer);
+}
+
 Token
 next_token(Lexer *lexer) {
     Token tok = next_token_internal(lexer);
@@ -655,14 +786,29 @@ build_free(Build *build) {
     free(build->module_name_hashes);
 }
 
+typedef struct Add_Module_Options {
+    bool do_define;
+} Add_Module_Options;
+
 void
-build_add_module(Build *build, Interpreter *interpreter, lstr module_name) {
-    for (int n = strlen(module_name); n != 0;) {
+build_add_module(Build *build, Interpreter *interpreter, lstr module_name, Add_Module_Options options) {
+    bool const do_define = options.do_define;
+    for (int n = smallsize(strlen(module_name)); n != 0;) {
         uint64_t hashvalue = hash(module_name, n);
-        for (size_t i = 0; i < build->modules_header.size; i++) {
+        afor (i, build->modules_header) {
             if (build->module_name_hashes[i] == hashvalue) {
                 if (0 == strncmp(build->modules[i].name, module_name, n)) {
-                    printf("MMM: warning: trying to add module '%s' that's already been added! while interpreting %s\n", module_name, interpreter->filename);
+                    if (!do_define) {
+                        printf("MMM: warning: trying to add module '%s' that's already been added! while interpreting %s\n", module_name, interpreter->filename);
+                    }
+
+                    if (do_define) {
+                        if (build->modules[i].is_defined) {
+                            printf("Error: module '%s' has already been defined!\n", module_name);
+                        }
+                        build->modules[i].is_defined = true;
+                    }
+                    
                     return;
                 }
             }
@@ -683,7 +829,7 @@ build_add_module(Build *build, Interpreter *interpreter, lstr module_name) {
             build->module_name_hashes = recallocz(build->module_name_hashes, hdr->capacity, new_capacity, sizeof build->module_name_hashes[0]);
             hdr->capacity = new_capacity;
         }
-        build->modules[build->modules_header.size] = (Module) { .name = p };
+        build->modules[build->modules_header.size] = (Module) { .name = p, .is_defined = do_define };
         build->module_name_hashes[build->modules_header.size] = hashvalue;
         build->modules_header.size++;
 
@@ -693,7 +839,7 @@ build_add_module(Build *build, Interpreter *interpreter, lstr module_name) {
 
 int
 chars_matches_keyword(char const *keyword, Charbuf const chars) {
-    // @slow
+    // @todo @slow
     size_t n = strlen(keyword);
     if (chars.header.size != n) return 0;
     return 0 == strncmp(chars.data, keyword, n);
@@ -701,8 +847,8 @@ chars_matches_keyword(char const *keyword, Charbuf const chars) {
 
 int
 token_matches_keyword(char const *keyword, Token tok, Lexer *lexer) {
-    // @slow
-    int n = strlen(keyword);
+    // @todo @slow
+    int n = smallsize(strlen(keyword));
     if (tok.len != n) return 0;
     return 0 == strncmp(&lexer->input[tok.pos], keyword, n);
 }
@@ -727,52 +873,107 @@ lstr text(Token tok, Lexer *lexer) {
 }
 
 int lookup_variable_index(Interpreter *self, lstr key) {
-    // O(n2) for now
-    int key_n = strlen(key);
-    for (int i = 0; i < self->variables.n; i++) {
+    // @todo @slow O(n2) for now
+    int key_n = smallsize(strlen(key));
+    afor (i, self->variables.header) {
         if (self->variables.names_len[i] != key_n)
             continue;
         if (strncmp(self->variables.names[i], key, key_n))
             continue;
-        return i;
+        return smallsize(i);
     }
-    return self->variables.n;
+    return self->variables.header.size;
 }
 
 typedef struct VariableLookup {
   lstr value;
-  int is_recursive;
+  bool is_recursive;
+  bool empty_because_undefined;
 } VariableLookup;
 
-VariableLookup lookup_variable(Interpreter *self, lstr key) {
-    if (self->variables.n == 0) return (VariableLookup){ .value = 0 };
-    int i = lookup_variable_index(self, key);
-    if (i == self->variables.n) return (VariableLookup) { .value = 0 };
-    return (VariableLookup){ .value = self->variables.values[i], .is_recursive = self->variables.is_recursive[i] };
+VariableLookup
+lookup_variable(Interpreter *self, lstr key) {
+    if (self->variables.header.size == 0) goto empty_variable;
+
+    size_t i = lookup_variable_index(self, key);
+
+    if (i == self->variables.header.size) goto empty_variable;
+
+    return (VariableLookup){
+        .value = self->variables.values[i],
+        .is_recursive = self->variables.is_recursive[i]
+    };
+
+empty_variable:
+    // > Most variable names are considered to have the empty string as a value if you have never set them. 
+    return (VariableLookup) { 
+        .value = "",
+        .empty_because_undefined = true,
+    };
+}
+
+VariableLookup
+lookup_namespaced_variable(Interpreter *self, /* borrowed */ Charbuf namespace_name, lstr suffix) {
+    int truncation_point = namespace_name.header.size;
+
+    chars_push_nstr(&namespace_name, strlen(suffix) + 1, suffix);
+    
+    VariableLookup result = lookup_variable(self, (char const*)namespace_name.data);
+    
+    namespace_name.header.size = truncation_point;
+
+    return result;
+}
+
+void
+debug_print_variable_lookup(lstr name, VariableLookup x) {
+    printf("\t%s = %s%s\n", name, x.value, x.is_recursive ? " (recursive)" : "");
+}
+
+char *
+Interpreter_strdup(Interpreter *self, lstr x) {
+    (void) self; // for now there is no arena.
+    return _strdup(x);
 }
 
 void set_variable(Interpreter *self, lstr key, lstr value, int is_recursive) {
-    int i = lookup_variable_index(self, key);
-    assert(0 <= i && i <= self->variables.n);
-    if (i == self->variables.n && i >= self->variables.cap) {
-        int old_cap = self->variables.cap;
+    assert(key);
+    size_t i = lookup_variable_index(self, key);
+    if (i != self->variables.header.size)
+        assert_index(self->variables.header, i);
+    
+    if (i == self->variables.header.size && i >= self->variables.header.capacity) {
+        int old_cap = self->variables.header.capacity;
         int new_cap = align_up(old_cap + old_cap + 1, 16);
         self->variables.names = recallocz(self->variables.names, old_cap, new_cap, sizeof self->variables.names[0]);
         self->variables.names_len = recallocz(self->variables.names_len, old_cap, new_cap, sizeof self->variables.names_len[0]);
         self->variables.values = recallocz(self->variables.values, old_cap, new_cap, sizeof self->variables.values[0]);
         self->variables.is_recursive = recallocz(self->variables.is_recursive, old_cap, new_cap, sizeof self->variables.is_recursive[0]);
-        self->variables.cap = new_cap;
+        self->variables.header.capacity = new_cap;
     }
-    if (i == self->variables.n) { // new name
-        self->variables.n++;
+    if (i == self->variables.header.size) { // new name
+        self->variables.header.size++;
         size_t n = strlen(key);
-        self->variables.names_len[i] = n;
-        self->variables.names[i] = strdup(key);
+        self->variables.names_len[i] = smallsize(n);
+        self->variables.names[i] = Interpreter_strdup(self, key);
         self->variables.is_recursive[i] = (char)is_recursive;
     }
     char *old_value = self->variables.values[i];
-    self->variables.values[i] = strdup(value);
+    self->variables.values[i] = Interpreter_strdup(self, value ? value : "");
     free(old_value);
+}
+
+void
+build_define_module(Interpreter *self, /*owned*/ Module2 module) {
+    assert(module.name.data[module.name.header.size] == 0);
+
+    // @todo should not warn if the module already exists
+    build_add_module(self->build, self, module.name.data, (Add_Module_Options){ .do_define = true });
+
+    if (g_program_options.emit_debug_log) {
+        printf("Adding module '%*s'\n", module.name.header.size, module.name.data);
+    }
+    aadd(self->modules.header, self->modules.data, module);
 }
 
 void
@@ -803,7 +1004,7 @@ expects_space(Interpreter *interpreter) {
 void
 interpreter_free(Interpreter *self) {
     chars_free(&self->tmpbuf);
-    for (int i = 0; i < self->variables.n; i++) {
+    afor (i, self->variables.header) {
         free(self->variables.names[i]);
         free(self->variables.values[i]);
     }
@@ -813,6 +1014,12 @@ interpreter_free(Interpreter *self) {
     memset(&self->variables, 0, sizeof self->variables);
 }
 
+typedef struct Rule_Context {
+    bool in_rule;
+} Rule_Context;
+
+// @todo this needs to accept expressions with variables in the arguments,
+// otherwise it will stop at the first encountered )
 int
 interpret_function_argument(Interpreter *self, Charbuf *result) {
     Lexer *lexer = self->lexer;
@@ -821,6 +1028,7 @@ interpret_function_argument(Interpreter *self, Charbuf *result) {
         int old_pos = lexer->pos;
         tok = next_token(lexer);
         if (matches_char(tok, ',', lexer)) {
+            lexer_rewind(lexer, old_pos); // instead we could return the token
             break;
         } else if (matches_char(tok, ')', lexer)) {
             lexer_rewind(lexer, old_pos);
@@ -831,6 +1039,79 @@ interpret_function_argument(Interpreter *self, Charbuf *result) {
     }
     return 1;
 }
+
+
+bool
+interpret_function_generic(Interpreter *interpreter, Charbuf function_name, size_t functions_count, Mk_Function const * functions, char const * prefix_for_logging, Rule_Context context) {
+    Lexer *lexer = interpreter->lexer;
+    
+    if (!context.in_rule) {
+        for (size_t i = 0; i < functions_count; i++) {
+            if (chars_matches_keyword(functions[i].name, function_name)) {
+                Mk_Function_Options flags = unpack_mk_function_flags(functions[i].flags);
+
+                printf("%s: found function call to %*s\n", prefix_for_logging, function_name.header.size, function_name.data);
+
+                if (flags.defines_module) {
+                    Token tok = next_token(lexer);
+                    if (!matches_char(tok, ',', lexer)) {
+                        goto defines_module_not_valid;
+                    }
+                    Charbuf arg = { 0, };
+                    if (!interpret_function_argument(interpreter, &arg)) {
+                        goto defines_module_not_valid;
+                    }
+                    build_define_module(interpreter, 
+                               (Module2){ .name = arg, .flags = pack_mk_function_flags(flags) });
+                    
+                    goto define_module_other_args;
+
+                    defines_module_not_valid:
+                        print_error_at(lexer, tok.pos);
+
+                    define_module_other_args:
+                        assert(1);
+                }
+                
+                printf("%s: args: ", prefix_for_logging);
+                Token tok = next_token(lexer);
+                printf("XXX: %d ", tok.kind);
+                printf(" got '%.*s'\n", tok.len, text(tok, lexer));
+                while(lexer->pos < lexer->endpos && matches_char(tok, ',', lexer)) {
+                    Charbuf arg = { 0, };
+                    if (interpret_function_argument(interpreter, &arg)) {
+                        printf("'%*s', ", arg.header.size, arg.data);
+                    }
+                    chars_free(&arg);
+                
+                    tok = next_token(lexer);
+                }
+                printf("\n");
+
+                print_context_at(lexer, lexer->toplevel_pos, prefix_for_logging);
+                printf("\n");
+
+                return 1;
+            }
+        }
+    }
+
+    return 0;}
+
+bool
+interpret_ysr_function(Interpreter *interpreter, Charbuf function_name, Rule_Context context) {
+    size_t function_names_count = sizeof Ysr_Functions / sizeof Ysr_Functions[0];
+    Mk_Function const * function_names = Ysr_Functions;
+    return interpret_function_generic(interpreter, function_name, function_names_count, function_names, "YFYF", context);
+}
+
+bool
+interpret_ln2_function(Interpreter *interpreter, Charbuf function_name, Rule_Context context) {
+    size_t function_names_count = sizeof Ln2_Functions / sizeof Ln2_Functions[0];
+    Mk_Function const * function_names = Ln2_Functions;
+    return interpret_function_generic(interpreter, function_name, function_names_count, function_names, "LN2LN2", context);
+}
+
 
 // either variable or function
 
@@ -845,10 +1126,6 @@ typedef struct Variable_Or_Function
     } kind;
 } Variable_Or_Function;
 
-
-typedef struct Rule_Context {
-    bool in_rule;
-} Rule_Context;
 
 Variable_Or_Function
 interpret_variable_or_function(Interpreter *interpreter, Charbuf *result, Rule_Context context) {
@@ -934,12 +1211,19 @@ interpret_variable_or_function(Interpreter *interpreter, Charbuf *result, Rule_C
             int function_pos = tok.pos;
             Charbuf user_function_name = { 0 };
             // @todo this appears to fail with to-lib-$(ARCH):
-            interpret_function_argument(interpreter, &user_function_name);
-
-
-            print_context_at(lexer, function_pos, "FFF");
-            printf("call to user defined function '%s'\n", user_function_name.data);
-
+            if (!interpret_function_argument(interpreter, &user_function_name)) {
+                print_error_at(lexer, lexer->pos);
+            }
+            
+            if (interpret_ysr_function(interpreter, user_function_name, context)) {
+                // success
+            } else if (interpret_ln2_function(interpreter, user_function_name, context)) {
+                // success
+            } else {
+                print_context_at(lexer, function_pos, "FFF");
+                printf("call to user defined function '%s'\n", user_function_name.data);
+            }
+            
             chars_free(&user_function_name);
         } else {
             // not a known function...
@@ -1017,13 +1301,18 @@ interpret_include_find_and_load_file(Interpreter *interpreter, char *filename_sp
     
     int must_ignore_include_file = 
         0 == strcmp(filename_spec, "./config.mk") ||
-        0 == strcmp(filename_spec, "ysr.mk");
+        0 == strcmp(filename_spec, "ysr.mk") ||
+        0 == strcmp(filename_spec, "$(realpath $(YSR.libdir))/functions/functions.mk") ||
+        0 == strcmp(filename_spec, "$(realpath $(YSR.libdir))/languages/gcc/rules.mk") ||
+        0 == strcmp(filename_spec, "$(realpath $(YSR.libdir))/languages/gcc/flags.mk") ||
+        0 == strcmp(filename_spec, "$(realpath $(YSR.libdir))/templates/target-rules.mk");
     
     if (must_ignore_include_file && !is_optional)
     {
         if (g_program_options.emit_debug_log) {
             printf("III: ignoring include because file in ignore list: %s\n", filename_spec);
         }
+        return;
     }
 
     typedef struct IncludeDir { size_t n; char const *path; } IncludeDir;
@@ -1216,7 +1505,8 @@ interpret_assignment(Interpreter *self, Token first_token) {
         if (chars_matches_keyword("1", value)) {
             // likely a module?
             printf("MMM: are you a module? %s\n", variable_name.data);
-            if (self->build) build_add_module(self->build, self, variable_name.data);
+            if (self->build)
+                build_add_module(self->build, self, variable_name.data, (Add_Module_Options){0,});
         }
 
 
@@ -1259,6 +1549,12 @@ interpret_rule(Interpreter *self, Token first_token) {
     // 1. target
     if (!interpret_rule_target(self, &target_buf))
         goto not_a_rule;
+
+    if (!target_buf.data) {
+        printf("RRR: a rule but without a target? That sounds fishy unless it's because there's a variable in here\n");
+        print_context_at(lexer, first_token.pos, "RRR");
+        printf("here\n");
+    }
     printf("rule target: %s\n", target_buf.data);
 
     Token tok = { 0 };
@@ -1288,6 +1584,7 @@ interpret_rule(Interpreter *self, Token first_token) {
     }
 
     // 3. recipes
+    lexer->expects_recipe = true;
     while (lexer->pos < lexer->endpos) {
         int old_pos = lexer->pos;
         tok = next_token(lexer);
@@ -1302,6 +1599,7 @@ interpret_rule(Interpreter *self, Token first_token) {
             break;
         }
     }
+    lexer->expects_recipe = false;
 
     lstr target_name = target_buf.data;
     if (g_program_options.emit_debug_log) {
@@ -1433,7 +1731,12 @@ interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional,
         interpreter->dirname = f;
     }
 
-    Lexer lexer = { .input = file_content, .endpos = num_bytes, 0 };
+    Lexer lexer = { 
+        .filename = filename,
+        .input = file_content, 
+        .endpos = smallsize(num_bytes), 
+        0
+    };
     interpreter->lexer = &lexer;
 
     while (interpret_toplevel(interpreter)) {
@@ -1464,6 +1767,7 @@ process_ysr_file(Project *project, char *filename) {
     set_variable(&interpreter, "HOST_CONFIG_MK", project->host_config_mk, 0);
 
     set_variable(&interpreter, "DEST", "<dest>", 1);
+    set_variable(&interpreter, "YSR.bin", "ysr", 0);
 
     build_create(&build);
 
@@ -1471,6 +1775,38 @@ process_ysr_file(Project *project, char *filename) {
 
     Error error = { 0 };
     interpreter_load_file(&interpreter, filename, 0, &error);
+
+    // Inspect all modules and process them:
+    afor(i, interpreter.modules.header) {
+        Module2 it = interpreter.modules.data[i];
+        printf("Module '%*s'\n", it.name.header.size, it.name.data);
+
+        Charbuf temp = { 0, };
+        chars_push_nstr(&temp, it.name.header.size, it.name.data);
+
+        VariableLookup iplug = lookup_namespaced_variable(&interpreter, temp, "_IPLUG");
+        if (iplug.empty_because_undefined) {
+            printf("Error, expected value for %s\n", temp.data);
+        } else {
+            debug_print_variable_lookup(temp.data, iplug);
+        }
+
+        VariableLookup res = lookup_namespaced_variable(&interpreter, temp, "_RES");
+        if (iplug.empty_because_undefined) {
+            printf("Error, expected value for %s\n", temp.data);
+        } else {
+            debug_print_variable_lookup(temp.data, res);
+        }
+
+        VariableLookup objs = lookup_namespaced_variable(&interpreter, temp, "_OBJS");
+        debug_print_variable_lookup(temp.data, objs);
+
+        VariableLookup deps = lookup_namespaced_variable(&interpreter, temp, "_DEPS");
+        debug_print_variable_lookup(temp.data, deps);
+
+        chars_free(&temp);
+    }
+    
     error_free(&error);
 
     build_free(&build);
@@ -1489,6 +1825,7 @@ main(void) {
         // we'll take this project as our example for now -2024-05
         //
         "h:/ln2/trunk/plugins/Gordia/Makefile",
+        "h:/ln2/trunk/apps/examples/Makefile.ysr",
     };
     size_t num_filenames = sizeof filenames_data / sizeof filenames_data[0];
 
