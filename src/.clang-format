@@ -1,0 +1,33 @@
+BasedOnStyle: LLVM
+
+# Line length limit
+ColumnLimit: 120
+
+# Align backslashes in multi-line macros to the left / code block end
+AlignEscapedNewlines: Left
+
+# Initializer list formatting
+Cpp11BracedListStyle: true
+
+# Break after return type for function definitions
+AlwaysBreakAfterReturnType: AllDefinitions
+
+# Allow inline single-line functions if they fit
+AllowShortFunctionsOnASingleLine: None
+
+# Indentation rules
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+# Function declaration styling
+BinPackParameters: true
+
+# Pointer and reference alignment
+PointerAlignment: Right
+
+# Spaces and alignment
+SpaceAfterCStyleCast: false
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeParens: ControlStatements
+SpacesInParentheses: false
