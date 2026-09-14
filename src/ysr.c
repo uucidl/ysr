@@ -172,7 +172,8 @@ typedef struct Lexer {
 } Lexer;
 
 typedef enum TokenKind {
-    TokenKind_None = 0,
+    TokenKind_Null = 0,
+    TokenKind_Word = 1,
     TokenKind_Assignment,
     TokenKind_Eol,
     TokenKind_Escape,
@@ -808,7 +809,7 @@ next_token_internal(Lexer *lexer) {
                     return char_token;
                 }
             } else if (is_word_at_char(c)) {
-                Token word_token = {.pos = lexer->pos++};
+                Token word_token = {.pos = lexer->pos++, .kind = TokenKind_Word};
                 consume_word(lexer);
                 terminate_token(lexer, &word_token);
                 return word_token;
@@ -931,7 +932,7 @@ matches_eol(Token tok) {
 
 int
 matches_word(Token tok) {
-    return tok.kind == TokenKind_None;
+    return tok.kind == TokenKind_Word;
 }
 
 int
