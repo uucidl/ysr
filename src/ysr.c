@@ -1129,6 +1129,8 @@ interpret_function_generic(Interpreter *interpreter, Charbuf function_name, size
                 printf("%s: found function call to %*s\n", prefix_for_logging, function_name.header.size,
                        function_name.data);
 
+                int const start_pos = lexer->pos;
+
                 if (flags.defines_module) {
                     Token tok = next_token(lexer);
                     if (!matches_char(tok, ',', lexer)) {
@@ -1168,7 +1170,7 @@ interpret_function_generic(Interpreter *interpreter, Charbuf function_name, size
                 }
                 printf("\n");
 
-                print_context_at(lexer, lexer->toplevel_pos, prefix_for_logging);
+                print_context_at(lexer, start_pos, prefix_for_logging);
                 printf("\n");
 
                 return 1;
