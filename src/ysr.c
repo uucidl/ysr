@@ -1729,20 +1729,107 @@ interpret_conditional(Interpreter *interpreter, Token tok) {
     Lexer *lexer = interpreter->lexer;
 
     if (token_matches_keyword("ifeq", tok, lexer)) {
+        if (g_program_options.emit_debug_log) {
+            printf("CCC: conditional found here\n");
+            print_context_at(interpreter->lexer, interpreter->lexer->pos, "CCC: ");
+            printf("\n");
+        }
+        if (!expects_space(interpreter)) {
+            printf("Expected space after ifeq got:\n");
+            print_context_at(interpreter->lexer, interpreter->lexer->pos, "");
+            return 0;
+        }
+
+        if (!lexer_expect_char(interpreter->lexer, "ifeq", '(', 0)) {
+            printf("Expected ( after ifeq got:\n");
+            print_context_at(interpreter->lexer, interpreter->lexer->pos, "");
+            return 0;
+        }
+
+        tok = next_token(interpreter->lexer);
+        if (matches_char(tok, '$', lexer)) {
+            // @tag{copypasta}
+            // references can be nested. @todo although I notice that this doesn't mean they're evaluated when it comes
+            // to a function being called, so I'm not sure this is the right structure here.
+            Charbuf subreference_result = {0};
+            Variable_Or_Function subreference =
+                interpret_variable_or_function(interpreter, &subreference_result, (Rule_Context){.in_rule = false});
+            if (!subreference.success) {
+                printf("Expected arg1, got:\n");
+                print_context_at(interpreter->lexer, interpreter->lexer->pos, "");
+                return 0;
+            }
+        }
+        if (!lexer_expect_char(interpreter->lexer, "ifeq,", ',', 0)) {
+            printf("Expected , after first argument to ifeq, got:\n");
+            print_context_at(interpreter->lexer, interpreter->lexer->pos, "");
+            return 0;
+        }
+
+        tok = next_token(interpreter->lexer);
+
+        if (!matches_char(tok, ')', lexer)) {
+            if (matches_char(tok, '$', lexer)) {
+                // @todo copypasta @tag{copypasta}
+                // references can be nested. @todo although I notice that this doesn't mean they're evaluated when it
+                // comes to a function being called, so I'm not sure this is the right structure here.
+                Charbuf subreference_result = {0};
+                Variable_Or_Function subreference =
+                    interpret_variable_or_function(interpreter, &subreference_result, (Rule_Context){.in_rule = false});
+                if (!subreference.success) {
+                    printf("Expected arg1, got:\n");
+                    print_context_at(interpreter->lexer, interpreter->lexer->pos, "");
+                    return 0;
+                }
+            } else {
+                consume_word(interpreter->lexer);
+            }
+        }
+
+        if (!matches_char(tok, ')', lexer)) {
+            printf("Expected ) at the end of ifeq expression, got:\n");
+            print_context_at(interpreter->lexer, interpreter->lexer->pos, "");
+            return 0;
+        }
+        consume_whitespace(interpreter->lexer);
+        consume_line(interpreter->lexer);
+        if (!expect_eol(interpreter->lexer)) {
+            printf("Expected eol at the end of ifeq line, got:\n");
+            print_context_at(interpreter->lexer, interpreter->lexer->pos, "");
+            return 0;
+        }
+
+        if (g_program_options.emit_debug_log) {
+            printf("CCC: ifeq end\n");
+            print_context_at(interpreter->lexer, interpreter->lexer->pos, "CCC");
+        }
+
         return 1;
     } else if (token_matches_keyword("ifneq", tok, lexer)) {
-        return 1;
+        goto error_recovery;
     } else if (token_matches_keyword("else", tok, lexer)) {
-        return 1;
+        goto error_recovery;
     } else if (token_matches_keyword("endif", tok, lexer)) {
-        return 1;
+        goto error_recovery;
     } else if (token_matches_keyword("ifndef", tok, lexer)) {
         // @todo implement me
         // evaluate the right-hand expression, lookup the existence of the variable, and if it
         // exists, ignore all the lines between here and the else/endif at the same scoping level.
-        return 1;
+        goto error_recovery;
     }
     return 0;
+
+error_recovery:
+    printf("error:");
+    print_context_at(lexer, lexer->pos, "error");
+    printf("unknown (skipping whole line)\n");
+    while (lexer->pos < lexer->endpos) {
+        tok = next_token(lexer);
+        if (matches_eol(tok)) {
+            return 1;
+        }
+    }
+    return 1;
 }
 
 int
@@ -1764,7 +1851,7 @@ interpret_toplevel(Interpreter *interpreter) {
             interpret_include(interpreter, is_optional);
             return 1;
         } else if (interpret_conditional(interpreter, tok)) {
-            goto error_recovery;
+            return 1;
         } else if (token_matches_keyword("define", tok, lexer)) {
             // @todo implement me.
             goto error_recovery;
