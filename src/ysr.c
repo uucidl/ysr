@@ -1438,11 +1438,15 @@ interpret_include(Interpreter *interpreter, int is_optional) {
     if (g_program_options.emit_debug_log) {
         printf("III: include directive here in this line: ");
         print_context_at(interpreter->lexer, interpreter->lexer->pos, 0);
+        printf("\n");
     }
 
     expects_space(interpreter);
     buf_reset(&interpreter->tmpbuf.header);
     if (!interpret_filename(interpreter, &interpreter->tmpbuf)) {
+        printf("III: could not interpret filename here");
+        print_context_at(interpreter->lexer, interpreter->lexer->pos, 0);
+        printf("\n");
         return;
     }
     interpret_include_find_and_load_file(interpreter, interpreter->tmpbuf.data, is_optional);
@@ -1460,6 +1464,9 @@ interpret_include(Interpreter *interpreter, int is_optional) {
         buf_reset(&interpreter->tmpbuf.header);
         interpret_filename(interpreter, &interpreter->tmpbuf);
         interpret_include_find_and_load_file(interpreter, interpreter->tmpbuf.data, is_optional);
+    }
+    if (g_program_options.emit_debug_log) {
+        printf("III: end\n");
     }
 }
 
