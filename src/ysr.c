@@ -1928,8 +1928,14 @@ interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional,
     Lexer lexer = {.filename = filename, .input = file_content, .endpos = smallsize(num_bytes), 0};
     interpreter->lexer = &lexer;
 
+    if (g_program_options.emit_debug_log) {
+        printf("FFF: interpreting file %s\n", filename);
+    }
     while (interpret_toplevel(interpreter)) {
         // continue;
+    }
+    if (g_program_options.emit_debug_log) {
+        printf("FFF: end\n");
     }
 
     printf("Stats for %s:\n", filename);
