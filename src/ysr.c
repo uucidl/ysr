@@ -1858,10 +1858,14 @@ interpret_toplevel(Interpreter *interpreter) {
         } else if (token_matches_keyword("endef", tok, lexer)) {
             // @todo implement me.
             goto error_recovery;
+        } else if (interpret_toplevel_function(interpreter, tok)) {
+            return 1;
         } else if (matches_word(tok)) {
             if (interpret_assignment(interpreter, tok)) {
                 return 1;
             } else if (interpret_toplevel_function(interpreter, tok)) {
+                // @todo can interpret_toplevel_function really happen after matching a word?
+                assert(false);
                 return 1;
             } else if (interpret_rule(interpreter, tok)) {
                 return 1;
