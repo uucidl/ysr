@@ -1762,14 +1762,16 @@ interpret_conditional(Interpreter *interpreter, Token tok) {
             return 0;
         }
 
+        Charbuf arg1_result = {0};
+        Charbuf arg2_result = {0};
+
         tok = next_token(interpreter->lexer);
         if (matches_char(tok, '$', lexer)) {
             // @tag{copypasta}
             // references can be nested. @todo although I notice that this doesn't mean they're evaluated when it comes
             // to a function being called, so I'm not sure this is the right structure here.
-            Charbuf subreference_result = {0};
             Variable_Or_Function subreference =
-                interpret_variable_or_function(interpreter, &subreference_result, (Rule_Context){.in_rule = false});
+                interpret_variable_or_function(interpreter, &arg1_result, (Rule_Context){.in_rule = false});
             if (!subreference.success) {
                 printf("Expected arg1, got:\n");
                 print_context_at(interpreter->lexer, interpreter->lexer->pos, "");
@@ -1789,16 +1791,23 @@ interpret_conditional(Interpreter *interpreter, Token tok) {
                 // @todo copypasta @tag{copypasta}
                 // references can be nested. @todo although I notice that this doesn't mean they're evaluated when it
                 // comes to a function being called, so I'm not sure this is the right structure here.
-                Charbuf subreference_result = {0};
                 Variable_Or_Function subreference =
-                    interpret_variable_or_function(interpreter, &subreference_result, (Rule_Context){.in_rule = false});
+                    interpret_variable_or_function(interpreter, &arg2_result, (Rule_Context){.in_rule = false});
                 if (!subreference.success) {
                     printf("Expected arg1, got:\n");
                     print_context_at(interpreter->lexer, interpreter->lexer->pos, "");
                     return 0;
                 }
             } else {
-                consume_word(interpreter->lexer);
+                if (!matches_word(tok)) {
+                    printf("Expected word in arg2, got %d:\n", tok.kind);
+                    print_context_at(interpreter->lexer, interpreter->lexer->pos, "");
+                    return 0;
+                }
+
+                chars_push_nstr(&arg2_result, tok.len, &interpreter->lexer->input[tok.pos]);
+
+                tok = next_token(interpreter->lexer);
             }
         }
 
@@ -1815,10 +1824,17 @@ interpret_conditional(Interpreter *interpreter, Token tok) {
             return 0;
         }
 
+        bool result = chars_equal(&arg1_result, &arg2_result);
+
+        printf("ifeq result: %s\n", result ? "true" : "false");
+
         if (g_program_options.emit_debug_log) {
             printf("CCC: ifeq end\n");
             print_context_at(interpreter->lexer, interpreter->lexer->pos, "CCC");
         }
+
+        chars_free(&arg1_result);
+        chars_free(&arg2_result);
 
         return 1;
     } else if (token_matches_keyword("ifneq", tok, lexer)) {
