@@ -970,6 +970,12 @@ lookup_variable(Interpreter *self, lstr key) {
     if (self->variables.header.size == 0)
         goto empty_variable;
 
+    if (strcmp(key, "ARCH") == 0) {
+        printf("lookup: ARCH\n"); // These denote important choices for each ARCH
+    } else if (strcmp(key, "CPU") == 0) {
+        printf("lookup: CPU\n");
+    }
+
     size_t i = lookup_variable_index(self, key);
 
     if (i == self->variables.header.size)
