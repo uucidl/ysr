@@ -1730,6 +1730,16 @@ not_a_rule:
     return 0;
 }
 
+bool
+chars_equal(Charbuf const *const a, Charbuf const *const b) {
+    int i;
+    for (i = 0; i < a->header.size && i < b->header.size; i++) {
+        if (a->data[i] != b->data[i])
+            return false;
+    }
+    return a->header.size == b->header.size;
+}
+
 int
 interpret_conditional(Interpreter *interpreter, Token tok) {
     Lexer *lexer = interpreter->lexer;
