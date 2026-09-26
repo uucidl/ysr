@@ -11,6 +11,30 @@
 // have built anything substantial onto that.
 //
 
+// Plan (2026-09-26)
+// =================
+//
+// 1. figure out variable entry points to use.
+// 2. figure out exhaustively the variables we want to track
+// 3. figure out how to handle conditionals.. we want to track what values those variables take, depending on conditions
+// that pre-exist
+//
+// I think it makes sense to "climb" up the build graph from various entry points:
+//
+// an entry in a *_REQUIRES variable indicates a module that exists and is necessary
+// such a module M is realized by a variable marking its existance, and exports various variables that start with its
+// name $M_<...>
+//
+// Non exhaustive list:
+//
+// _INCLUDES
+// _OBJS
+// _DEFINES
+//
+// Other entry points: the various ysr-add functions that add targets we're interested in.
+// Possibly redundant with presence of a _REQUIRES.. You could imagine and standalone target
+// without any _REQUIRES but that's probably not super useful.
+
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
