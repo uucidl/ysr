@@ -1267,20 +1267,27 @@ interpret_variable_or_function(Interpreter *interpreter, Charbuf *result, Rule_C
             }
         } else if (chars_matches_keyword("shell", variable_name)) {
             printf("$(%.*s...) shell function\n", variable_name.header.size, variable_name.data);
+            // @todo
         } else if (chars_matches_keyword("addprefix", variable_name) ||
-                   chars_matches_keyword("addsuffix", variable_name)) {
+                   chars_matches_keyword("addsuffix", variable_name) ||
+                   chars_matches_keyword("findstring", variable_name)) {
             printf("$(%.*s...) text function\n", variable_name.header.size, variable_name.data);
+            // @todo
         } else if (chars_matches_keyword("firstword", variable_name)) {
             printf("$(%.*s...) list function\n", variable_name.header.size, variable_name.data);
+            // @todo
         } else if (chars_matches_keyword("realpath", variable_name) || chars_matches_keyword("dir", variable_name) ||
                    chars_matches_keyword("abspath", variable_name)) {
             printf("$(%.*s...) path function\n", variable_name.header.size, variable_name.data);
+            // @todo
         } else if (chars_matches_keyword("patsubst", variable_name)) {
             printf("$(%.*s...) substitution function\n", variable_name.header.size, variable_name.data);
+            // @todo
         } else if (chars_matches_keyword("eval", variable_name)) {
             // no-op
             print_context_at(lexer, tok.pos, "FFF");
             printf("$(%.*s...) eval, ignored/not implemented\n", variable_name.header.size, variable_name.data);
+            // @todo
         }
         // user-defined
         else if (chars_matches_keyword("call", variable_name)) {
@@ -1301,6 +1308,7 @@ interpret_variable_or_function(Interpreter *interpreter, Charbuf *result, Rule_C
             }
 
             chars_free(&user_function_name);
+            // @todo
         } else {
             // not a known function...
             print_context_at(lexer, tok.pos, "FFF");
