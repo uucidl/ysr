@@ -1749,95 +1749,125 @@ chars_equal(Charbuf const *const a, Charbuf const *const b) {
 }
 
 int
-interpret_conditional(Interpreter *interpreter, Token tok) {
+interpret_conditional_arguments(Interpreter *interpreter, char const *context, Charbuf *arg1_result,
+                                Charbuf *arg2_result) {
     Lexer *lexer = interpreter->lexer;
 
-    if (token_matches_keyword("ifeq", tok, lexer)) {
-        if (g_program_options.emit_debug_log) {
-            printf("CCC: conditional found here\n");
-            print_context_at(interpreter->lexer, interpreter->lexer->pos, "CCC: ");
-            printf("\n");
-        }
-        if (!expects_space(interpreter)) {
-            printf("Expected space after ifeq got:\n");
+    if (!lexer_expect_char(lexer, context, '(', 0)) {
+        printf("Expected ( after ifeq got:\n");
+        print_context_at(lexer, lexer->pos, "");
+        return 0;
+    }
+
+    Token tok = next_token(lexer);
+    if (matches_char(tok, '$', lexer)) {
+        // @tag{copypasta}
+        // references can be nested. @todo although I notice that this doesn't mean they're evaluated when it comes
+        // to a function being called, so I'm not sure this is the right structure here.
+        Variable_Or_Function subreference =
+            interpret_variable_or_function(interpreter, arg1_result, (Rule_Context){.in_rule = false});
+        if (!subreference.success) {
+            printf("Expected arg1, got:\n");
             print_context_at(interpreter->lexer, interpreter->lexer->pos, "");
             return 0;
         }
+    }
+    if (!lexer_expect_char(lexer, context, ',', 0)) {
+        printf("Expected , after first argument to %s, got:\n", context);
+        print_context_at(lexer, lexer->pos, "");
+        return 0;
+    }
 
-        if (!lexer_expect_char(interpreter->lexer, "ifeq", '(', 0)) {
-            printf("Expected ( after ifeq got:\n");
-            print_context_at(interpreter->lexer, interpreter->lexer->pos, "");
+    tok = next_token(lexer);
+
+    if (!matches_char(tok, ')', lexer)) {
+        if (matches_char(tok, '$', lexer)) {
+            // @todo copypasta @tag{copypasta}
+            // references can be nested. @todo although I notice that this doesn't mean they're evaluated when it
+            // comes to a function being called, so I'm not sure this is the right structure here.
+            Variable_Or_Function subreference =
+                interpret_variable_or_function(interpreter, arg2_result, (Rule_Context){.in_rule = false});
+            if (!subreference.success) {
+                printf("Expected arg1, got:\n");
+                print_context_at(lexer, lexer->pos, "");
+                return 0;
+            }
+        } else {
+            if (!matches_word(tok)) {
+                printf("Expected word in arg2, got %d:\n", tok.kind);
+                print_context_at(lexer, lexer->pos, "");
+                return 0;
+            }
+
+            chars_push_nstr(arg2_result, tok.len, &lexer->input[tok.pos]);
+
+            tok = next_token(lexer);
+        }
+    }
+
+    if (!matches_char(tok, ')', lexer)) {
+        printf("Expected ) at the end of %s expression, got:\n", context);
+        print_context_at(interpreter->lexer, interpreter->lexer->pos, "");
+        return 0;
+    }
+
+    return 1;
+}
+
+int
+interpret_conditional(Interpreter *interpreter, Token tok) {
+    Lexer *lexer = interpreter->lexer;
+
+    bool is_if = false;
+    bool is_neq = false;
+
+    if (token_matches_keyword("ifeq", tok, lexer)) {
+        is_if = true;
+        is_neq = false;
+    } else if (token_matches_keyword("ifneq", tok, lexer)) {
+        is_if = true;
+        is_neq = true;
+    }
+
+    if (is_if) {
+        char *context = is_neq ? "ifneq" : "ifeq";
+
+        if (g_program_options.emit_debug_log) {
+            printf("CCC: conditional found here\n");
+            print_context_at(lexer, lexer->pos, "CCC: ");
+            printf("\n");
+        }
+        if (!expects_space(interpreter)) {
+            printf("Expected space after %s got:\n", context);
+            print_context_at(lexer, lexer->pos, "");
             return 0;
         }
 
         Charbuf arg1_result = {0};
         Charbuf arg2_result = {0};
 
-        tok = next_token(interpreter->lexer);
-        if (matches_char(tok, '$', lexer)) {
-            // @tag{copypasta}
-            // references can be nested. @todo although I notice that this doesn't mean they're evaluated when it comes
-            // to a function being called, so I'm not sure this is the right structure here.
-            Variable_Or_Function subreference =
-                interpret_variable_or_function(interpreter, &arg1_result, (Rule_Context){.in_rule = false});
-            if (!subreference.success) {
-                printf("Expected arg1, got:\n");
-                print_context_at(interpreter->lexer, interpreter->lexer->pos, "");
-                return 0;
-            }
-        }
-        if (!lexer_expect_char(interpreter->lexer, "ifeq,", ',', 0)) {
-            printf("Expected , after first argument to ifeq, got:\n");
-            print_context_at(interpreter->lexer, interpreter->lexer->pos, "");
+        if (!interpret_conditional_arguments(interpreter, context, &arg1_result, &arg2_result)) {
             return 0;
         }
 
-        tok = next_token(interpreter->lexer);
-
-        if (!matches_char(tok, ')', lexer)) {
-            if (matches_char(tok, '$', lexer)) {
-                // @todo copypasta @tag{copypasta}
-                // references can be nested. @todo although I notice that this doesn't mean they're evaluated when it
-                // comes to a function being called, so I'm not sure this is the right structure here.
-                Variable_Or_Function subreference =
-                    interpret_variable_or_function(interpreter, &arg2_result, (Rule_Context){.in_rule = false});
-                if (!subreference.success) {
-                    printf("Expected arg1, got:\n");
-                    print_context_at(interpreter->lexer, interpreter->lexer->pos, "");
-                    return 0;
-                }
-            } else {
-                if (!matches_word(tok)) {
-                    printf("Expected word in arg2, got %d:\n", tok.kind);
-                    print_context_at(interpreter->lexer, interpreter->lexer->pos, "");
-                    return 0;
-                }
-
-                chars_push_nstr(&arg2_result, tok.len, &interpreter->lexer->input[tok.pos]);
-
-                tok = next_token(interpreter->lexer);
-            }
-        }
-
-        if (!matches_char(tok, ')', lexer)) {
-            printf("Expected ) at the end of ifeq expression, got:\n");
-            print_context_at(interpreter->lexer, interpreter->lexer->pos, "");
-            return 0;
-        }
         consume_whitespace(interpreter->lexer);
         consume_line(interpreter->lexer);
         if (!expect_eol(interpreter->lexer)) {
-            printf("Expected eol at the end of ifeq line, got:\n");
+            printf("Expected eol at the end of %s line, got:\n", context);
             print_context_at(interpreter->lexer, interpreter->lexer->pos, "");
             return 0;
         }
 
         bool result = chars_equal(&arg1_result, &arg2_result);
 
-        printf("ifeq result: %s\n", result ? "true" : "false");
+        if (is_neq) {
+            result = !result;
+        }
+
+        printf("%s result: %s\n", context, result ? "true" : "false");
 
         if (g_program_options.emit_debug_log) {
-            printf("CCC: ifeq end\n");
+            printf("CCC: %s end\n", context);
             print_context_at(interpreter->lexer, interpreter->lexer->pos, "CCC");
         }
 
@@ -1845,11 +1875,11 @@ interpret_conditional(Interpreter *interpreter, Token tok) {
         chars_free(&arg2_result);
 
         return 1;
-    } else if (token_matches_keyword("ifneq", tok, lexer)) {
-        goto error_recovery;
     } else if (token_matches_keyword("else", tok, lexer)) {
+        // @todo implement me
         goto error_recovery;
     } else if (token_matches_keyword("endif", tok, lexer)) {
+        // @todo implement me
         goto error_recovery;
     } else if (token_matches_keyword("ifndef", tok, lexer)) {
         // @todo implement me
