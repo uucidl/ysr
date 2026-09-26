@@ -517,8 +517,8 @@ lexer_rewind(Lexer *lexer, int pos) {
 }
 
 int
-lexer_expect_char_at_pos(Lexer *lexer, char *context, char expected_char, char const *optional_name_of_expected_char,
-                         int pos) {
+lexer_expect_char_at_pos(Lexer *lexer, char const *context, char expected_char,
+                         char const *optional_name_of_expected_char, int pos) {
     char c = lexer->input[pos];
     int success = c == expected_char;
     if (!success) {
@@ -536,7 +536,7 @@ lexer_expect_char_at_pos(Lexer *lexer, char *context, char expected_char, char c
 }
 
 int
-lexer_expect_char(Lexer *lexer, char *context, char expected_char, char const *optional_name_of_expected_char) {
+lexer_expect_char(Lexer *lexer, char const *context, char expected_char, char const *optional_name_of_expected_char) {
     if (lexer_expect_char_at_pos(lexer, context, expected_char, optional_name_of_expected_char, lexer->pos)) {
         lexer->pos++;
         return 1;
