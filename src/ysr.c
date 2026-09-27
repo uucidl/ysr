@@ -11,6 +11,11 @@
 // have built anything substantial onto that.
 //
 
+// Defects
+// =======
+//
+// Line tracking (physical or logical line) is off, as can be seen with wdl.mk
+
 // Plan (2026-09-26)
 // =================
 //
@@ -36,6 +41,7 @@
 // without any _REQUIRES but that's probably not super useful.
 
 #include <assert.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -49,7 +55,7 @@ typedef struct Program_Options {
 } Program_Options;
 
 Program_Options g_program_options = {
-    .emit_debug_log = false,
+    .emit_debug_log = true,
 };
 
 inline uint64_t
@@ -114,6 +120,11 @@ typedef struct BufHeader {
     int capacity;
 } BufHeader;
 
+typedef struct BufView {
+    int index; // position in the buffer.
+    int count; // number of elements this view covers
+} BufView;
+
 #define anew(hdr, data_ptr) \
     do {                    \
         hdr = (BufHeader){  \
@@ -138,12 +149,17 @@ typedef struct BufHeader {
         hdr.capacity = new_capacity;                                                  \
     } while (0)
 
-#define aadd(hdr, data_ptr, data)           \
-    do {                                    \
-        agrow(hdr, data_ptr, hdr.size + 1); \
-        data_ptr[hdr.size] = data;          \
-        hdr.size++;                         \
+#define aadd(hdr, data_ptr, data)     \
+    do {                              \
+        if (buf_wouldgrow(&hdr, 1)) { \
+            agrow(hdr, data_ptr, 1);  \
+        }                             \
+        data_ptr[hdr.size] = data;    \
+        hdr.size++;                   \
     } while (0)
+
+#define apush(hdr, data_ptr, data) aadd(hdr, data_ptr, data)
+#define apop(hdr, data_ptr) (assert(hdr.size > 0), hdr.size--, data_ptr[hdr.size])
 
 #define afor(varname, hdr) for (size_t(varname) = 0; (varname) < (hdr).size; (varname)++)
 
@@ -227,9 +243,14 @@ typedef struct Module2 {
     uint64_t flags; // Mk_Function_Flags
 } Module2;
 
-// You can't really parse and lex makefiles without also interpreting them, since variables definitions have direct
-// influences on
 typedef struct Interpreter {
+    struct {
+        Charbuf errordata;
+
+        BufHeader errors_header;
+        BufView *errors;
+    } errors;
+
     Project *project;
 
     Lexer *lexer;
@@ -252,8 +273,15 @@ typedef struct Interpreter {
         Module2 *data;
     } modules;
 
+    struct {
+        BufHeader block_header;
+        int *block_stack; // line where the predicate is found (for now)
+    } predicates;
+
     Build *build; // output of our interpreter.
 } Interpreter;
+
+void interpreter_add_errorf(Interpreter *interpreter, char const *format, ...);
 
 uint64_t
 hash(char const *bytes, size_t n) {
@@ -342,6 +370,45 @@ chars_push_nstr(Charbuf *chars, size_t n, lstr str) {
 }
 
 void
+chars_vpushf(Charbuf *chars, char const *format, va_list args) {
+    int n;
+    {
+        va_list args2;
+        va_copy(args2, args);
+        n = vsnprintf(0, 0, format, args2);
+        va_end(args2);
+    }
+
+    if (n < 0) {
+        assert(false);
+        exit(-1);
+    }
+
+    int needed_n = smallsize(n + 1 /* implicit zero terminator */);
+
+    BufHeader *buf = (BufHeader *)chars;
+    if (buf_wouldgrow(buf, needed_n)) {
+        int new_capacity = buf_fit_capacity(*buf, needed_n);
+        chars_reserve(chars, new_capacity);
+    }
+
+    vsnprintf(&chars->data[buf->size], buf->capacity - buf->size, format, args);
+    chars->data[buf->size + n] = '\0'; // always null terminate the strings for compat with C
+
+    buf->size += smallsize(n);
+}
+
+void
+chars_pushf(Charbuf *chars, char const *format, ...) {
+    va_list args;
+    va_start(args, format);
+
+    chars_vpushf(chars, format, args);
+
+    va_end(args);
+}
+
+void
 arena_create(FixedSizeArena *arena, int size) {
     chars_reserve(&arena->memory, size);
 }
@@ -369,14 +436,14 @@ typedef enum ErrorCode {
     ErrorCode_FileReadFailed,
 } ErrorCode;
 
-typedef struct Error {
+typedef struct SysError {
     ErrorCode code;
     char *message;
     int errno_value;
-} Error;
+} SysError;
 
 void
-error_assert_none(Error *error) {
+error_assert_none(SysError *error) {
     if (error->code != ErrorCode_None) {
         printf("Unrecoverable: unprocessed error %d:%s (errno: %d) found\n", error->code, error->message,
                error->errno_value);
@@ -386,7 +453,7 @@ error_assert_none(Error *error) {
 }
 
 void
-error_set(Error *error, ErrorCode code, char *message) {
+error_set(SysError *error, ErrorCode code, char *message) {
     error_assert_none(error);
     error->code = code;
     error->message = message;
@@ -394,17 +461,17 @@ error_set(Error *error, ErrorCode code, char *message) {
 }
 
 void
-error_clear(Error *error) {
-    *error = (Error){0};
+error_clear(SysError *error) {
+    *error = (SysError){0};
 }
 
 void
-error_free(Error *error) {
+error_free(SysError *error) {
     error_assert_none(error);
 }
 
 static char *
-read_whole_file(lstr const filename, size_t *num_bytes_ptr, Error *error) {
+read_whole_file(lstr const filename, size_t *num_bytes_ptr, SysError *error) {
     char *result = 0;
     char *buffer = 0;
     int errc = 0;
@@ -468,7 +535,7 @@ eof_token(Lexer *lexer) {
 void
 consume_whitespace(Lexer *lexer) {
     lstr p = lexer->input;
-    while (p[lexer->pos] == ' ' || p[lexer->pos] == '\t') {
+    while (p[lexer->pos] == ' ' || p[lexer->pos] == '\t' || p[lexer->pos] == '\r') {
         lexer->pos++;
     }
 }
@@ -505,7 +572,7 @@ consume_word(Lexer *lexer) {
 }
 
 void
-print_context_at(Lexer *lexer, int pos, char const *optional_prefix) {
+chars_push_context_at(Charbuf *chars, Lexer *lexer, int pos, char const *optional_prefix) {
     // let's print the whole line.
     int line_start_pos = pos;
     while (line_start_pos != 0 && lexer->input[line_start_pos - 1] != '\n') {
@@ -516,17 +583,28 @@ print_context_at(Lexer *lexer, int pos, char const *optional_prefix) {
         line_end_pos++;
     }
 
-    printf("\n%s:top:%d\n", lexer->filename, lexer->toplevel_pos);
+    chars_pushf(chars, "\n%s:%d:top:%d\n", lexer->filename, lexer->physical_line, lexer->toplevel_pos);
     if (optional_prefix)
-        printf("%s: ", optional_prefix);
-    printf("%s:%d: ", lexer->filename, pos);
+        chars_pushf(chars, "%s: ", optional_prefix);
+    chars_pushf(chars, "%s:%d: ", lexer->filename, pos);
 
-    printf("%.*s\n", line_end_pos - line_start_pos, &lexer->input[line_start_pos]);
+    chars_pushf(chars, "%.*s\n", line_end_pos - line_start_pos, &lexer->input[line_start_pos]);
     if (optional_prefix)
-        printf("%s: ", optional_prefix);
-    printf("%s:%d: ", lexer->filename, pos);
+        chars_pushf(chars, "%s: ", optional_prefix);
+    chars_pushf(chars, "%s:%d: ", lexer->filename, pos);
 
-    printf("%*s^", pos - line_start_pos, "");
+    chars_pushf(chars, "%*s^", pos - line_start_pos, "");
+}
+
+void
+print_context_at(Lexer *lexer, int pos, char const *optional_prefix) {
+    Charbuf charbuf = {0};
+
+    chars_push_context_at(&charbuf, lexer, pos, optional_prefix);
+
+    printf("%s", charbuf.data);
+
+    chars_free(&charbuf);
 }
 
 void
@@ -570,6 +648,9 @@ lexer_expect_char(Lexer *lexer, char const *context, char expected_char, char co
 
 int
 expect_eol(Lexer *lexer) {
+    if (lexer->input[lexer->pos] == 0) {
+        return 1;
+    }
     if (lexer_expect_char(lexer, "eol", '\n', "end-of-line")) {
         return 1;
     }
@@ -703,6 +784,7 @@ next_token_internal(Lexer *lexer) {
             while (is_number_at_char(lexer->input[lexer->pos])) {
                 lexer->pos++;
             }
+            number.kind = TokenKind_Word;
             terminate_token(lexer, &number);
             return number;
         }
@@ -897,7 +979,7 @@ build_add_module(Build *build, Interpreter *interpreter, lstr module_name, Add_M
 
                     if (do_define) {
                         if (build->modules[i].is_defined) {
-                            printf("Error: module '%s' has already been defined!\n", module_name);
+                            interpreter_add_errorf(interpreter, "module '%s' has already been defined!", module_name);
                         }
                         build->modules[i].is_defined = true;
                     }
@@ -1033,6 +1115,44 @@ debug_print_variable_lookup(lstr name, VariableLookup x) {
     printf("\t%s = %s%s\n", name, x.value, x.is_recursive ? " (recursive)" : "");
 }
 
+void
+interpreter_add_verrorf(Interpreter *interpreter, char const *format, va_list args) {
+
+    Lexer *lexer = interpreter->lexer;
+    BufView error = {0};
+
+    Charbuf *errordata = &interpreter->errors.errordata;
+
+    error.index = errordata->header.size;
+
+    chars_push_context_at(errordata, lexer, lexer->pos, "error");
+
+    chars_vpushf(errordata, format, args);
+
+    error.count = errordata->header.size - error.index;
+
+    apush(interpreter->errors.errors_header, interpreter->errors.errors, error);
+}
+
+void
+interpreter_add_errorf(Interpreter *interpreter, char const *format, ...) {
+    va_list args;
+    va_start(args, format);
+
+    interpreter_add_verrorf(interpreter, format, args);
+
+    va_end(args);
+}
+
+void
+interpreter_error(Interpreter *interpreter, char *context, Token tok) {
+    Lexer *lexer = interpreter->lexer;
+    print_error_at(lexer, tok.pos); // @todo route this to the actual error buffer
+
+    interpreter_add_errorf(interpreter, "while %s at byte %d, got '%.*s'", context, lexer->pos, tok.len,
+                           text(tok, lexer));
+}
+
 char *
 Interpreter_strdup(Interpreter *self, lstr x) {
     (void)self; // for now there is no arena.
@@ -1080,15 +1200,6 @@ build_define_module(Interpreter *self, /*owned*/ Module2 module) {
         printf("Adding module '%*s'\n", module.name.header.size, module.name.data);
     }
     aadd(self->modules.header, self->modules.data, module);
-}
-
-void
-interpreter_error(Interpreter *interpreter, char *context, Token tok) {
-    Lexer *lexer = interpreter->lexer;
-    print_error_at(lexer, tok.pos);
-
-    printf("error: while %s at byte %d,", context, lexer->pos);
-    printf(" got '%.*s'\n", tok.len, text(tok, lexer));
 }
 
 int
@@ -1201,6 +1312,9 @@ interpret_function_generic(Interpreter *interpreter, Charbuf function_name, size
                 printf("\n");
 
                 print_context_at(lexer, start_pos, prefix_for_logging);
+                printf("\n");
+                printf("Until: ");
+                print_context_at(lexer, lexer->pos, prefix_for_logging);
                 printf("\n");
 
                 return 1;
@@ -1323,9 +1437,9 @@ interpret_variable_or_function(Interpreter *interpreter, Charbuf *result, Rule_C
             }
 
             if (interpret_ysr_function(interpreter, user_function_name, context)) {
-                // success
+                return (struct Variable_Or_Function){.success = true, .kind = VOF_Function};
             } else if (interpret_ln2_function(interpreter, user_function_name, context)) {
-                // success
+                return (struct Variable_Or_Function){.success = true, .kind = VOF_Function};
             } else {
                 print_context_at(lexer, function_pos, "FFF");
                 printf("call to user defined function '%s'\n", user_function_name.data);
@@ -1367,7 +1481,7 @@ interpret_variable_or_function(Interpreter *interpreter, Charbuf *result, Rule_C
 
     VariableLookup var = lookup_variable(interpreter, variable_name.data);
     if (!var.value) {
-        printf("error: could not find value of variable '%s'\n", variable_name.data);
+        interpreter_add_errorf(interpreter, "could not find value of variable '%s'", variable_name.data);
         return (struct Variable_Or_Function){.success = false};
     }
     chars_push_nstr(result, strlen(var.value), var.value);
@@ -1407,7 +1521,7 @@ interpret_filename(Interpreter *interpreter, Charbuf *result) {
     return 1;
 }
 
-void interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional, Error *error);
+void interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional, SysError *error);
 
 void
 interpret_include_find_and_load_file(Interpreter *interpreter, char *filename_spec, int is_optional) {
@@ -1437,7 +1551,7 @@ interpret_include_find_and_load_file(Interpreter *interpreter, char *filename_sp
         {strlen(interpreter->project->ysrlibdir), interpreter->project->ysrlibdir},
     };
 
-    Error error = {0};
+    SysError error = {0};
     Charbuf path = {0};
 
     for (IncludeDir *p = &include_dirs[0], *l = &include_dirs[sizeof include_dirs / sizeof include_dirs[0]]; p != l;
@@ -1461,9 +1575,11 @@ interpret_include_find_and_load_file(Interpreter *interpreter, char *filename_sp
     }
 
     if (error.code != ErrorCode_None) {
-        printf("error: while including file %s, could not be found in any of the include directories, last path tried "
-               "was %s\n",
-               filename_spec, path.data);
+        interpreter_add_errorf(
+            interpreter,
+            "while including file %s, could not be found in any of the include directories, last path tried "
+            "was %s\n",
+            filename_spec, path.data);
         error_clear(&error);
     }
 
@@ -1838,11 +1954,76 @@ interpret_conditional_arguments(Interpreter *interpreter, char const *context, C
     return 1;
 }
 
+void
+new_block(Interpreter *interpreter, int line) {
+    apush(interpreter->predicates.block_header, interpreter->predicates.block_stack, line);
+}
+
+void
+exit_block(Interpreter *interpreter) {
+    apop(interpreter->predicates.block_header, interpreter->predicates.block_stack);
+}
+
+int
+interpret_if(Interpreter *interpreter, bool is_neq) {
+    char *context = is_neq ? "ifneq" : "ifeq";
+
+    Lexer *lexer = interpreter->lexer;
+    int line = lexer->logical_line;
+
+    if (g_program_options.emit_debug_log) {
+        printf("CCC: conditional found here\n");
+        print_context_at(lexer, lexer->pos, "CCC: ");
+        printf("\n");
+    }
+    if (!expects_space(interpreter)) {
+        printf("Expected space after %s got:\n", context);
+        print_context_at(lexer, lexer->pos, "");
+        return 0;
+    }
+
+    Charbuf arg1_result = {0};
+    Charbuf arg2_result = {0};
+
+    if (!interpret_conditional_arguments(interpreter, context, &arg1_result, &arg2_result)) {
+        return 0;
+    }
+
+    consume_whitespace(interpreter->lexer);
+    consume_line(interpreter->lexer);
+    if (!expect_eol(interpreter->lexer)) {
+        printf("Expected eol at the end of %s line, got:\n", context);
+        print_context_at(interpreter->lexer, interpreter->lexer->pos, "");
+        return 0;
+    }
+
+    bool result = chars_equal(&arg1_result, &arg2_result);
+
+    if (is_neq) {
+        result = !result;
+    }
+
+    printf("%s result: %s\n", context, result ? "true" : "false");
+
+    if (g_program_options.emit_debug_log) {
+        printf("CCC: %s end\n", context);
+        print_context_at(interpreter->lexer, interpreter->lexer->pos, "CCC");
+    }
+
+    chars_free(&arg1_result);
+    chars_free(&arg2_result);
+
+    new_block(interpreter, line);
+
+    return 1;
+}
+
 int
 interpret_conditional(Interpreter *interpreter, Token tok) {
     Lexer *lexer = interpreter->lexer;
 
     bool is_if = false;
+    bool is_ifdef = false;
     bool is_neq = false;
 
     if (token_matches_keyword("ifeq", tok, lexer)) {
@@ -1851,10 +2032,50 @@ interpret_conditional(Interpreter *interpreter, Token tok) {
     } else if (token_matches_keyword("ifneq", tok, lexer)) {
         is_if = true;
         is_neq = true;
+    } else if (token_matches_keyword("ifdef", tok, lexer)) {
+        is_ifdef = true;
+        is_neq = false;
+    } else if (token_matches_keyword("ifndef", tok, lexer)) {
+        is_ifdef = true;
+        is_neq = true;
     }
 
     if (is_if) {
-        char *context = is_neq ? "ifneq" : "ifeq";
+        return interpret_if(interpreter, is_neq);
+    } else if (token_matches_keyword("else", tok, lexer)) {
+        consume_whitespace(lexer);
+        if (!expect_eol(lexer)) {
+            interpreter_add_errorf(interpreter, "in else, expected end of line");
+            print_context_at(lexer, lexer->pos, "else");
+            return 0;
+        }
+
+        return 1;
+    } else if (token_matches_keyword("endif", tok, lexer)) {
+        if (g_program_options.emit_debug_log) {
+            printf("CCC: conditional end found here\n");
+            print_context_at(lexer, lexer->pos, "CCC: ");
+            printf("\n");
+        }
+
+        consume_whitespace(lexer);
+        if (!expect_eol(lexer)) {
+            return 0;
+        }
+
+        if (interpreter->predicates.block_header.size == 0) {
+            interpreter_add_errorf(interpreter, "encountered endif without corresponding if");
+            return 0;
+        }
+
+        exit_block(interpreter);
+        return 1;
+    } else if (is_ifdef) {
+        // evaluate the right-hand expression, lookup the existence of the variable, and if it
+        // exists, ignore all the lines between here and the else/endif at the same scoping level.
+
+        int line = lexer->logical_line;
+        char const *context = is_neq ? "ifndef" : "ifdef";
 
         if (g_program_options.emit_debug_log) {
             printf("CCC: conditional found here\n");
@@ -1867,63 +2088,38 @@ interpret_conditional(Interpreter *interpreter, Token tok) {
             return 0;
         }
 
-        Charbuf arg1_result = {0};
-        Charbuf arg2_result = {0};
-
-        if (!interpret_conditional_arguments(interpreter, context, &arg1_result, &arg2_result)) {
+        tok = next_token(lexer);
+        if (!matches_word(tok)) {
+            printf("Expected word, got: %d\n", tok.kind);
+            print_context_at(lexer, lexer->pos, context);
             return 0;
         }
 
-        consume_whitespace(interpreter->lexer);
-        consume_line(interpreter->lexer);
-        if (!expect_eol(interpreter->lexer)) {
-            printf("Expected eol at the end of %s line, got:\n", context);
-            print_context_at(interpreter->lexer, interpreter->lexer->pos, "");
+        Charbuf variable_name = {
+            0,
+        };
+        chars_push_nstr(&variable_name, tok.len, &lexer->input[tok.pos]);
+
+        VariableLookup l = lookup_variable(interpreter, variable_name.data);
+
+        consume_whitespace(lexer);
+        if (!expect_eol(lexer)) {
             return 0;
         }
 
-        bool result = chars_equal(&arg1_result, &arg2_result);
+        bool result = !l.empty_because_undefined;
 
         if (is_neq) {
             result = !result;
         }
 
-        printf("%s result: %s\n", context, result ? "true" : "false");
+        printf("CCC: %s %*.s result is %s\n", context, tok.len, &lexer->input[tok.pos], result ? "true" : "false");
 
-        if (g_program_options.emit_debug_log) {
-            printf("CCC: %s end\n", context);
-            print_context_at(interpreter->lexer, interpreter->lexer->pos, "CCC");
-        }
-
-        chars_free(&arg1_result);
-        chars_free(&arg2_result);
+        new_block(interpreter, line);
 
         return 1;
-    } else if (token_matches_keyword("else", tok, lexer)) {
-        // @todo implement me
-        goto error_recovery;
-    } else if (token_matches_keyword("endif", tok, lexer)) {
-        // @todo implement me
-        goto error_recovery;
-    } else if (token_matches_keyword("ifndef", tok, lexer)) {
-        // @todo implement me
-        // evaluate the right-hand expression, lookup the existence of the variable, and if it
-        // exists, ignore all the lines between here and the else/endif at the same scoping level.
-        goto error_recovery;
     }
     return 0;
-
-error_recovery:
-    printf("error:");
-    print_context_at(lexer, lexer->pos, "error");
-    printf("unknown (skipping whole line)\n");
-    while (lexer->pos < lexer->endpos) {
-        tok = next_token(lexer);
-        if (matches_eol(tok)) {
-            return 1;
-        }
-    }
-    return 1;
 }
 
 int
@@ -1979,6 +2175,7 @@ interpret_toplevel(Interpreter *interpreter) {
     return 0;
 
 error_recovery:
+    interpreter_add_errorf(interpreter, "unknown error, at toplevel, skipping whole line");
     printf("error:");
     print_context_at(lexer, lexer->pos, "error");
     printf("unknown (skipping whole line)\n");
@@ -1992,7 +2189,7 @@ error_recovery:
 }
 
 void
-interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional, Error *error) {
+interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional, SysError *error) {
     Lexer *old_lexer = interpreter->lexer;
     char *old_filename = interpreter->filename;
     char *old_dirname = interpreter->dirname;
@@ -2029,11 +2226,29 @@ interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional,
     if (g_program_options.emit_debug_log) {
         printf("FFF: interpreting file %s\n", filename);
     }
+
+    size_t predicate_count = interpreter->predicates.block_header.size;
+
     while (interpret_toplevel(interpreter)) {
         // continue;
+
+        if (interpreter->errors.errors_header.size > 0) {
+            afor(error_index, interpreter->errors.errors_header) {
+                fprintf(stdout, "Error(%d): %.*s\n", smallsize(error_index),
+                        interpreter->errors.errors[error_index].count,
+                        &interpreter->errors.errordata.data[interpreter->errors.errors[error_index].index]);
+            }
+
+            buf_reset(&interpreter->errors.errordata.header);
+            buf_reset(&interpreter->errors.errors_header);
+        }
     }
     if (g_program_options.emit_debug_log) {
         printf("FFF: end\n");
+    }
+
+    if (predicate_count != interpreter->predicates.block_header.size) {
+        interpreter_add_errorf(interpreter, "unbalanced if/else/endif?");
     }
 
     printf("Stats for %s:\n", filename);
@@ -2070,7 +2285,7 @@ process_ysr_file(Project *project, char *filename) {
 
     interpreter.build = &build;
 
-    Error error = {0};
+    SysError error = {0};
     interpreter_load_file(&interpreter, filename, 0, &error);
 
     // Inspect all modules and process them:
@@ -2114,6 +2329,14 @@ process_ysr_file(Project *project, char *filename) {
 
 int
 main(void) {
+    /* @test */ {
+        Charbuf test = {0};
+        chars_pushf(&test, "hello: %s", "world");
+        chars_pushf(&test, ", or should I say %s?: %d", "sailor", 42);
+        printf("result: %s\n", test.data);
+        assert(strcmp(test.data, "hello: world, or should I say sailor?: 42") == 0);
+    }
+
     Project project = {
         .topdir = "h:/ln2/trunk",
         .projectfile = "h:/ln2/trunk/project.ysr",
