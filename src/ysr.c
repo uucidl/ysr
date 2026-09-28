@@ -726,6 +726,7 @@ next_token_internal(Lexer *lexer) {
             // From: https://www.gnu.org/software/make/manual/make.html#index-splitting-long-lines
 
         case 0: {
+            lexer->pos++;
             return eof_token(lexer);
         }
 
@@ -791,6 +792,7 @@ next_token_internal(Lexer *lexer) {
         case '.': {
             Token special_variable = {.pos = lexer->pos};
             consume_word(lexer);
+            special_variable.kind = TokenKind_Word;
             terminate_token(lexer, &special_variable);
             return special_variable;
         }
@@ -2185,46 +2187,18 @@ error_recovery:
             return 1;
         }
     }
-    return 1;
+    return 0;
 }
 
 void
-interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional, SysError *error) {
-    Lexer *old_lexer = interpreter->lexer;
-    char *old_filename = interpreter->filename;
-    char *old_dirname = interpreter->dirname;
+interpreter_load_content(Interpreter *interpreter, char const *file_content, size_t file_content_size) {
+    assert(file_content[file_content_size] == 0); // needs content to be null terminated.
 
-    size_t num_bytes = 0;
-    char *file_content = read_whole_file(filename, &num_bytes, error);
-    if (error->code != ErrorCode_None) {
-        // @todo Logic can be moved to the caller.
-        if (is_optional) {
-            error_clear(error);
-            return; // silent
-        }
-        return;
-    }
-
-    // Switch interpreter to work on this file as its current file:
-    interpreter->filename = filename;
-    { // Calculate dirname
-        char *const f = strdup(interpreter->filename);
-        char *l = f;
-        for (char *p = f; *p; p++) {
-            char c = *p;
-            if ((c == '/') || (c == '\\')) {
-                l = p;
-            }
-        }
-        l[1] = '\0';
-        interpreter->dirname = f;
-    }
-
-    Lexer lexer = {.filename = filename, .input = file_content, .endpos = smallsize(num_bytes), 0};
+    Lexer lexer = {.filename = interpreter->filename, .input = file_content, .endpos = smallsize(file_content_size), 0};
     interpreter->lexer = &lexer;
 
     if (g_program_options.emit_debug_log) {
-        printf("FFF: interpreting file %s\n", filename);
+        printf("FFF: interpreting file %s\n", interpreter->filename);
     }
 
     size_t predicate_count = interpreter->predicates.block_header.size;
@@ -2251,15 +2225,10 @@ interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional,
         interpreter_add_errorf(interpreter, "unbalanced if/else/endif?");
     }
 
-    printf("Stats for %s:\n", filename);
-    printf("num_bytes: %ld\n", (long unsigned)num_bytes);
+    printf("Stats for %s:\n", interpreter->filename);
+    printf("num_bytes: %ld\n", (long unsigned)file_content_size);
     printf("num_tokens: %d\n", lexer.num_tokens);
-    printf("avg_byte_per_token: %f\n", 1.0 * num_bytes / lexer.num_tokens);
-    free(file_content);
-
-    interpreter->filename = old_filename;
-    interpreter->dirname = old_dirname;
-    interpreter->lexer = old_lexer;
+    printf("avg_byte_per_token: %f\n", 1.0 * file_content_size / lexer.num_tokens);
 }
 
 void
@@ -2321,10 +2290,50 @@ process_ysr_file(Project *project, char *filename) {
         chars_free(&temp);
     }
 
-    error_free(&error);
-
     build_free(&build);
+    error_free(&error);
     interpreter_free(&interpreter);
+}
+
+void
+interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional, SysError *error) {
+    Lexer *old_lexer = interpreter->lexer;
+    char *old_filename = interpreter->filename;
+    char *old_dirname = interpreter->dirname;
+
+    size_t num_bytes = 0;
+    char *file_content = read_whole_file(filename, &num_bytes, error);
+    if (error->code != ErrorCode_None) {
+        // @todo Logic can be moved to the caller.
+        if (is_optional) {
+            error_clear(error);
+            return; // silent
+        }
+        return;
+    }
+
+    interpreter->filename = filename;
+    { // Calculate dirname
+        char *const f = strdup(interpreter->filename);
+        char *l = f;
+        for (char *p = f; *p; p++) {
+            char c = *p;
+            if ((c == '/') || (c == '\\')) {
+                l = p;
+            }
+        }
+        l[1] = '\0';
+        interpreter->dirname = f;
+    }
+
+    // Switch interpreter to work on this file as its current file:
+    interpreter_load_content(interpreter, file_content, num_bytes);
+
+    interpreter->filename = old_filename;
+    interpreter->dirname = old_dirname;
+    interpreter->lexer = old_lexer;
+
+    free(file_content);
 }
 
 int
@@ -2335,6 +2344,16 @@ main(void) {
         chars_pushf(&test, ", or should I say %s?: %d", "sailor", 42);
         printf("result: %s\n", test.data);
         assert(strcmp(test.data, "hello: world, or should I say sailor?: 42") == 0);
+    }
+
+    /* @test{.PHONY: foo} */ {
+        Interpreter interpreter = {0};
+
+        char const content[] = ".PHONY: foo\n";
+
+        interpreter_load_content(&interpreter, content, sizeof content - 1);
+
+        interpreter_free(&interpreter);
     }
 
     Project project = {
