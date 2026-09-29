@@ -275,10 +275,17 @@ typedef struct Interpreter {
         Module2 *data;
     } modules;
 
+    // parser temporaries
+
     struct {
         BufHeader block_header;
-        int *block_stack; // line where the predicate is found (for now)
+        int *block_stack; // line where the scope / predicate is found.
     } predicates;
+
+    struct {
+        int count;
+        int pos;
+    } define;
 
     Build *build; // output of our interpreter.
 } Interpreter;
@@ -1163,9 +1170,14 @@ Interpreter_strdup(Interpreter *self, lstr x) {
     return _strdup(x);
 }
 
+typedef struct SetVariableOptions {
+    bool is_recursive;
+} SetVariableOptions;
+
 void
-set_variable(Interpreter *self, lstr key, lstr value, int is_recursive) {
+set_variable(Interpreter *self, lstr key, lstr value, SetVariableOptions options) {
     assert(key);
+
     size_t i = lookup_variable_index(self, key);
     if (i != self->variables.header.size)
         assert_index(self->variables.header, i);
@@ -1186,7 +1198,7 @@ set_variable(Interpreter *self, lstr key, lstr value, int is_recursive) {
         size_t n = strlen(key);
         self->variables.names_len[i] = smallsize(n);
         self->variables.names[i] = Interpreter_strdup(self, key);
-        self->variables.is_recursive[i] = (char)is_recursive;
+        self->variables.is_recursive[i] = (char)options.is_recursive;
     }
     char *old_value = self->variables.values[i];
     self->variables.values[i] = Interpreter_strdup(self, value ? value : "");
@@ -1271,8 +1283,8 @@ interpret_function_generic(Interpreter *interpreter, Charbuf function_name, size
             if (chars_matches_keyword(functions[i].name, function_name)) {
                 Mk_Function_Options flags = unpack_mk_function_flags(functions[i].flags);
 
-                printf("%s: found function call to %*s\n", prefix_for_logging, function_name.header.size,
-                       function_name.data);
+                printf("%s: found function call to %*s with flags %u\n", prefix_for_logging, function_name.header.size,
+                       function_name.data, (unsigned int)functions[i].flags);
 
                 int const start_pos = lexer->pos;
 
@@ -1426,6 +1438,7 @@ interpret_variable_or_function(Interpreter *interpreter, Charbuf *result, Rule_C
             printf("$(%.*s...) substitution function\n", variable_name.header.size, variable_name.data);
             // @todo
         } else if (chars_matches_keyword("eval", variable_name)) {
+            printf("EVAL EVAL EVAL EVAL\n");
             // no-op
             print_context_at(lexer, tok.pos, "FFF");
             printf("$(%.*s...) eval, ignored/not implemented\n", variable_name.header.size, variable_name.data);
@@ -1762,16 +1775,14 @@ interpret_assignment(Interpreter *self, Token first_token) {
         // @todo @wip set variables, taking into account the type of the variable and the assignment operator.
         Charbuf variable_name = {0};
         chars_push_nstr(&variable_name, first_token.len, text(first_token, lexer));
-        set_variable(self, variable_name.data, value.data, is_recursive);
+        set_variable(self, variable_name.data, value.data, (SetVariableOptions){.is_recursive = is_recursive});
 
         if (chars_matches_keyword("1", value)) {
             // likely a module?
             printf("MMM: are you a module? %s\n", variable_name.data);
-            if (self->build)
-                build_add_module(self->build, self, variable_name.data,
-                                 (Add_Module_Options){
-                                     0,
-                                 });
+            if (self->build) {
+                build_add_module(self->build, self, variable_name.data, (Add_Module_Options){0});
+            }
         }
 
         chars_free(&variable_name);
@@ -2127,6 +2138,74 @@ interpret_conditional(Interpreter *interpreter, Token tok) {
 }
 
 int
+interpret_define(Interpreter *interpreter, Token tok) {
+    // "The define directive is followed on the same line by the name of the variable and nothing more. The value to
+    // give the variable appears on the following lines. The end of the value is marked by a line containing just the
+    // word endef. Aside from this difference in syntax, define works just like `=': it creates a recursively-expanded
+    // variable (see section The Two Flavors of Variables). The variable name may contain function and variable
+    // references, which are expanded when the directive is read to find the actual variable name to use."
+
+    Lexer *lexer = interpreter->lexer;
+    if (!token_matches_keyword("define", tok, lexer)) {
+        return 0;
+    }
+
+    int define_pos = tok.pos;
+
+    consume_whitespace(lexer);
+
+    tok = next_token(lexer);
+    if (!matches_word(tok)) {
+        interpreter_add_errorf(interpreter, "define: expected variable name");
+        return 1;
+    }
+
+    Charbuf variable_name = {0};
+    chars_push_nstr(&variable_name, tok.len, text(tok, lexer));
+
+    interpreter->define.pos = define_pos;
+    if (interpreter->define.count != 0) {
+        // We differ from the GNU make manual:
+        //
+        // "You may nest define directives: make will keep track of nested directives and report an error if they are
+        // not all properly closed with endef. Note that lines beginning with tab characters are considered part of a
+        // command script, so any define or endef strings appearing on such a line will not be considered make
+        // operators."
+
+        interpreter_add_errorf(interpreter, "define: nested define not allowed");
+        return 1;
+    }
+    interpreter->define.count++;
+
+    tok = next_token(lexer);
+    int variable_start_pos = tok.pos;
+    while (tok.pos != lexer->endpos && !token_matches_keyword("endef", tok, lexer)) {
+        tok = next_token(lexer);
+    }
+    int variable_end_pos = tok.pos;
+
+    if (!expect_eol(lexer)) {
+        interpreter_add_errorf(interpreter, "endef: expected end of line");
+        return 1;
+    }
+
+    // This pushes the variable value without interpretation. I think there's variable substitution to be performed?
+    Charbuf variable_value = {0};
+    chars_push_nstr(&variable_value, variable_end_pos - variable_start_pos, &lexer->input[variable_start_pos]);
+
+    if (tok.pos == lexer->endpos) {
+        interpreter_add_errorf(interpreter, "define: encountered end of file before endef occurred");
+        return 1;
+    }
+
+    set_variable(interpreter, variable_name.data, variable_value.data, (SetVariableOptions){.is_recursive = true});
+
+    interpreter->define.count--;
+
+    return 1;
+}
+
+int
 interpret_toplevel(Interpreter *interpreter) {
     Lexer *lexer = interpreter->lexer;
 
@@ -2146,12 +2225,8 @@ interpret_toplevel(Interpreter *interpreter) {
             return 1;
         } else if (interpret_conditional(interpreter, tok)) {
             return 1;
-        } else if (token_matches_keyword("define", tok, lexer)) {
-            // @todo implement me.
-            goto error_recovery;
-        } else if (token_matches_keyword("endef", tok, lexer)) {
-            // @todo implement me.
-            goto error_recovery;
+        } else if (interpret_define(interpreter, tok)) {
+            return 1;
         } else if (interpret_toplevel_function(interpreter, tok)) {
             return 1;
         } else if (matches_word(tok)) {
@@ -2244,13 +2319,13 @@ process_ysr_file(Project *project, char *filename) {
 
     interpreter.project = project;
 
-    set_variable(&interpreter, "TOP", project->topdir, 0);
-    set_variable(&interpreter, "YSR.project.file", project->projectfile, 0);
-    set_variable(&interpreter, "YSR.libdir", project->ysrlibdir, 0);
-    set_variable(&interpreter, "HOST_CONFIG_MK", project->host_config_mk, 0);
+    set_variable(&interpreter, "TOP", project->topdir, (SetVariableOptions){0});
+    set_variable(&interpreter, "YSR.project.file", project->projectfile, (SetVariableOptions){0});
+    set_variable(&interpreter, "YSR.libdir", project->ysrlibdir, (SetVariableOptions){0});
+    set_variable(&interpreter, "HOST_CONFIG_MK", project->host_config_mk, (SetVariableOptions){0});
 
-    set_variable(&interpreter, "DEST", "<dest>", 1);
-    set_variable(&interpreter, "YSR.bin", "ysr", 0);
+    set_variable(&interpreter, "DEST", "<dest>", (SetVariableOptions){.is_recursive = 1});
+    set_variable(&interpreter, "YSR.bin", "ysr", (SetVariableOptions){0});
 
     build_create(&build);
 
