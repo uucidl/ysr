@@ -974,54 +974,73 @@ typedef struct Add_Module_Options {
     bool do_define;
 } Add_Module_Options;
 
+// returns -1 sentinel if the module cannot be found.
+int
+build_lookup_module(Build *build, lstr module_name) {
+    int index = -1;
+    int n = smallsize(strlen(module_name));
+    if (n != 0) {
+        uint64_t const hashvalue = hash(module_name, n);
+        afor(i, build->modules_header) {
+            if (!build->module_name_hashes[i] == hashvalue) {
+                continue;
+            }
+            if (0 != strncmp(build->modules[i].name, module_name, n)) {
+                continue;
+            }
+            index = smallsize(i);
+            break;
+        }
+    }
+
+    return index;
+}
+
 void
 build_add_module(Build *build, Interpreter *interpreter, lstr module_name, Add_Module_Options options) {
     bool const do_define = options.do_define;
-    for (int n = smallsize(strlen(module_name)); n != 0;) {
-        uint64_t hashvalue = hash(module_name, n);
-        afor(i, build->modules_header) {
-            if (build->module_name_hashes[i] == hashvalue) {
-                if (0 == strncmp(build->modules[i].name, module_name, n)) {
-                    if (!do_define) {
-                        printf("MMM: warning: trying to add module '%s' that's already been added! while interpreting "
-                               "%s\n",
-                               module_name, interpreter->filename);
-                    }
 
-                    if (do_define) {
-                        if (build->modules[i].is_defined) {
-                            interpreter_add_errorf(interpreter, "module '%s' has already been defined!", module_name);
-                        }
-                        build->modules[i].is_defined = true;
-                    }
+    int module_index = build_lookup_module(build, module_name);
+    if (module_index >= 0) {
+        if (!do_define) {
+            printf("MMM: warning: trying to add module '%s' that's already been added! while interpreting "
+                   "%s\n",
+                   module_name, interpreter->filename);
+        }
 
-                    return;
-                }
+        if (do_define) {
+            if (build->modules[module_index].is_defined) {
+                interpreter_add_errorf(interpreter, "module '%s' has already been defined!", module_name);
             }
+            build->modules[module_index].is_defined = true;
         }
 
-        char *p = arena_alloc(n + 1, &build->arena);
-        if (!p) {
-            printf("error: exhausted module names memory.\n");
-            assert(0);
-            exit(0);
-        }
-        memcpy(p, module_name, n + 1);
-
-        if (buf_wouldgrow(&build->modules_header, 1)) {
-            BufHeader *hdr = &build->modules_header;
-            int new_capacity = buf_fit_capacity(*hdr, 1);
-            build->modules = recallocz(build->modules, hdr->capacity, new_capacity, sizeof build->modules[0]);
-            build->module_name_hashes =
-                recallocz(build->module_name_hashes, hdr->capacity, new_capacity, sizeof build->module_name_hashes[0]);
-            hdr->capacity = new_capacity;
-        }
-        build->modules[build->modules_header.size] = (Module){.name = p, .is_defined = do_define};
-        build->module_name_hashes[build->modules_header.size] = hashvalue;
-        build->modules_header.size++;
-
-        break;
+        return;
     }
+
+    int const n = smallsize(strlen(module_name));
+    uint64_t const hashvalue = hash(module_name, n);
+
+    char *p = arena_alloc(n + 1, &build->arena);
+    if (!p) {
+        printf("error: exhausted module names memory.\n");
+        assert(0);
+        exit(0);
+    }
+    memcpy(p, module_name, n + 1);
+
+    // growing parallel arrays for the module array
+    if (buf_wouldgrow(&build->modules_header, 1)) {
+        BufHeader *hdr = &build->modules_header;
+        int new_capacity = buf_fit_capacity(*hdr, 1);
+        build->modules = recallocz(build->modules, hdr->capacity, new_capacity, sizeof build->modules[0]);
+        build->module_name_hashes =
+            recallocz(build->module_name_hashes, hdr->capacity, new_capacity, sizeof build->module_name_hashes[0]);
+        hdr->capacity = new_capacity;
+    }
+    build->modules[build->modules_header.size] = (Module){.name = p, .is_defined = do_define};
+    build->module_name_hashes[build->modules_header.size] = hashvalue;
+    build->modules_header.size++;
 }
 
 int
@@ -1216,6 +1235,58 @@ build_define_module(Interpreter *self, /*owned*/ Module2 module) {
         printf("Adding module '%*s'\n", module.name.header.size, module.name.data);
     }
     aadd(self->modules.header, self->modules.data, module);
+}
+
+void
+build_define_required_modules(Interpreter *interpreter) {
+    BufHeader modules_to_add_header = {0};
+    Module2 *modules_to_add = NULL;
+
+    int start_module_index = 0;
+    while (start_module_index < interpreter->modules.header.size) {
+        int end_module_index = interpreter->modules.header.size;
+        for (int module_index = start_module_index; module_index < end_module_index; module_index++) {
+
+            Module2 it = interpreter->modules.data[module_index];
+
+            Charbuf temp = {
+                0,
+            };
+            chars_push_nstr(&temp, it.name.header.size, it.name.data);
+
+            VariableLookup
+                requires
+            = lookup_namespaced_variable(interpreter, temp, "_REQUIRES");
+
+            Lexer lexer = {.input = requires.value};
+            Token tok = next_token(&lexer);
+            while (matches_word(tok)) {
+                Charbuf other_module_name = {0};
+                chars_push_nstr(&other_module_name, tok.len, text(tok, &lexer));
+
+                int other_module_index = build_lookup_module(interpreter->build, other_module_name.data);
+                if (other_module_index < 0) {
+                    interpreter_add_errorf(interpreter, "module %s requires module %s but I cannot find it.", temp.data,
+                                           other_module_name.data);
+                }
+
+                apush(modules_to_add_header, modules_to_add, (Module2){.name = other_module_name});
+
+                consume_whitespace(&lexer);
+                tok = next_token(&lexer);
+            }
+
+            chars_free(&temp);
+        }
+
+        start_module_index = end_module_index;
+
+        afor(i, modules_to_add_header) {
+            build_define_module(interpreter, modules_to_add[i]);
+        }
+        modules_to_add_header.size = 0;
+    }
+    afree(modules_to_add_header, modules_to_add);
 }
 
 int
@@ -2333,6 +2404,8 @@ process_ysr_file(Project *project, char *filename) {
 
     SysError error = {0};
     interpreter_load_file(&interpreter, filename, 0, &error);
+
+    build_define_required_modules(&interpreter);
 
     // Inspect all modules and process them:
     afor(i, interpreter.modules.header) {
