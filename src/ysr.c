@@ -55,7 +55,7 @@ typedef struct Program_Options {
 } Program_Options;
 
 Program_Options g_program_options = {
-    .emit_debug_log = true,
+    .emit_debug_log = false,
 };
 
 inline uint64_t
@@ -332,6 +332,11 @@ recallocz(void *ptr, size_t old_num, size_t new_num, size_t elem_size) {
 void
 buf_reset(BufHeader *buf) {
     buf->size = 0;
+}
+
+Charbuf const
+chars_from_lstr(lstr str) {
+    return (Charbuf){.header.size = smallsize(strlen(str)), .data = (char *)str};
 }
 
 void
@@ -976,16 +981,16 @@ typedef struct Add_Module_Options {
 
 // returns -1 sentinel if the module cannot be found.
 int
-build_lookup_module(Build *build, lstr module_name) {
+build_lookup_module(Build *build, lstr module_name, int module_name_len) {
+    assert(module_name_len >= 0);
     int index = -1;
-    int n = smallsize(strlen(module_name));
-    if (n != 0) {
-        uint64_t const hashvalue = hash(module_name, n);
+    if (module_name_len != 0) {
+        uint64_t const hashvalue = hash(module_name, module_name_len);
         afor(i, build->modules_header) {
             if (!build->module_name_hashes[i] == hashvalue) {
                 continue;
             }
-            if (0 != strncmp(build->modules[i].name, module_name, n)) {
+            if (0 != strncmp(build->modules[i].name, module_name, module_name_len)) {
                 continue;
             }
             index = smallsize(i);
@@ -1000,7 +1005,9 @@ void
 build_add_module(Build *build, Interpreter *interpreter, lstr module_name, Add_Module_Options options) {
     bool const do_define = options.do_define;
 
-    int module_index = build_lookup_module(build, module_name);
+    int const n = smallsize(strlen(module_name));
+
+    int module_index = build_lookup_module(build, module_name, n);
     if (module_index >= 0) {
         if (!do_define) {
             printf("MMM: warning: trying to add module '%s' that's already been added! while interpreting "
@@ -1018,7 +1025,6 @@ build_add_module(Build *build, Interpreter *interpreter, lstr module_name, Add_M
         return;
     }
 
-    int const n = smallsize(strlen(module_name));
     uint64_t const hashvalue = hash(module_name, n);
 
     char *p = arena_alloc(n + 1, &build->arena);
@@ -1264,7 +1270,8 @@ build_define_required_modules(Interpreter *interpreter) {
                 Charbuf other_module_name = {0};
                 chars_push_nstr(&other_module_name, tok.len, text(tok, &lexer));
 
-                int other_module_index = build_lookup_module(interpreter->build, other_module_name.data);
+                int other_module_index =
+                    build_lookup_module(interpreter->build, other_module_name.data, other_module_name.header.size);
                 if (other_module_index < 0) {
                     interpreter_add_errorf(interpreter, "module %s requires module %s but I cannot find it.", temp.data,
                                            other_module_name.data);
@@ -2404,6 +2411,40 @@ process_ysr_file(Project *project, char *filename) {
 
     SysError error = {0};
     interpreter_load_file(&interpreter, filename, 0, &error);
+
+    // Post conditions
+
+    {
+        // Each module is registered in build
+        afor(i, interpreter.modules.header) {
+            Module2 it = interpreter.modules.data[i];
+            assert(build_lookup_module(interpreter.build, it.name.data, it.name.header.size) >= 0);
+        }
+
+        // Each defined module in build only appears once
+        afor(name_index, interpreter.build->modules_header) {
+            Module it = interpreter.build->modules[name_index];
+            if (!it.is_defined) {
+                continue;
+            }
+            uint64_t it_hash = interpreter.build->module_name_hashes[name_index];
+            Charbuf const it_name = chars_from_lstr(it.name);
+
+            int match_count = 0;
+            afor(module_index, interpreter.modules.header) {
+                Module2 module = interpreter.modules.data[module_index];
+                uint64_t other_hash = hash(module.name.data, module.name.header.size);
+                if (other_hash != it_hash) {
+                    continue;
+                }
+                if (chars_equal(&module.name, &it_name)) {
+                    match_count++;
+                }
+            }
+
+            assert(match_count == 1);
+        }
+    }
 
     build_define_required_modules(&interpreter);
 
