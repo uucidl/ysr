@@ -230,6 +230,7 @@ typedef struct Token {
 typedef struct Module {
     lstr name;
     bool is_defined;
+    int module2_index;
 } Module;
 
 typedef struct Build {
@@ -977,6 +978,7 @@ build_free(Build *build) {
 
 typedef struct Add_Module_Options {
     bool do_define;
+    int module2_index; // if do_define is true, then it MUST be filled
 } Add_Module_Options;
 
 // returns -1 sentinel if the module cannot be found.
@@ -1020,6 +1022,7 @@ build_add_module(Build *build, Interpreter *interpreter, lstr module_name, Add_M
                 interpreter_add_errorf(interpreter, "module '%s' has already been defined!", module_name);
             }
             build->modules[module_index].is_defined = true;
+            build->modules[module_index].module2_index = options.module2_index;
         }
 
         return;
@@ -1235,7 +1238,8 @@ build_define_module(Interpreter *self, /*owned*/ Module2 module) {
     assert(module.name.data[module.name.header.size] == 0);
 
     // @todo should not warn if the module already exists
-    build_add_module(self->build, self, module.name.data, (Add_Module_Options){.do_define = true});
+    build_add_module(self->build, self, module.name.data,
+                     (Add_Module_Options){.do_define = true, .module2_index = self->modules.header.size});
 
     if (g_program_options.emit_debug_log) {
         printf("Adding module '%*s'\n", module.name.header.size, module.name.data);
@@ -1377,7 +1381,28 @@ interpret_function_generic(Interpreter *interpreter, Charbuf function_name, size
                     if (!interpret_function_argument(interpreter, &arg)) {
                         goto defines_module_not_valid;
                     }
-                    build_define_module(interpreter, (Module2){.name = arg, .flags = pack_mk_function_flags(flags)});
+
+                    {
+                        uint64_t packed_flags = pack_mk_function_flags(flags);
+                        // record that this is a module
+                        int existing_module_index = build_lookup_module(interpreter->build, arg.data, arg.header.size);
+                        if (existing_module_index >= 0) {
+                            Module const *module = &interpreter->build->modules[existing_module_index];
+                            if (module->is_defined) {
+                                int module2_index = module->module2_index;
+                                uint64_t current_flags = interpreter->modules.data[module2_index].flags;
+                                if (current_flags != packed_flags) {
+                                    interpreter_add_errorf(
+                                        interpreter,
+                                        "module %.*s is already known with flags %d, while it's being "
+                                        "redefined with flags: %d",
+                                        arg.header.size, arg.data, current_flags, packed_flags);
+                                }
+                            }
+                        } else {
+                            build_define_module(interpreter, (Module2){.name = arg, .flags = packed_flags});
+                        }
+                    }
 
                     goto define_module_other_args;
 
@@ -2555,6 +2580,16 @@ main(void) {
         Interpreter interpreter = {0};
 
         char const content[] = ".PHONY: foo\n";
+
+        interpreter_load_content(&interpreter, content, sizeof content - 1);
+
+        interpreter_free(&interpreter);
+    }
+
+    /* @test{$(P)_audio_OBJS:=$(D)/audio.o} */ {
+        Interpreter interpreter = {0};
+
+        char const content[] = "$(P)_audio_OBJS:=$(D)/audio.o\n";
 
         interpreter_load_content(&interpreter, content, sizeof content - 1);
 
