@@ -71,17 +71,19 @@ enum Mk_Function_Flags {
 
 typedef struct Mk_Function_Options {
     bool defines_module;
+    bool is_iplug;
 } Mk_Function_Options;
 
 uint64_t
 pack_mk_function_flags(Mk_Function_Options x) {
-    return (x.defines_module ? MFF_IS_MODULE : 0);
+    return (x.defines_module ? MFF_IS_MODULE : 0) | (x.is_iplug ? MFF_IS_IPLUG : 0);
 }
 
 Mk_Function_Options
 unpack_mk_function_flags(uint64_t x) {
     return (struct Mk_Function_Options){
         .defines_module = x & MFF_IS_MODULE,
+        .is_iplug = x & MFF_IS_IPLUG,
     };
 }
 
@@ -2267,18 +2269,24 @@ process_ysr_file(Project *project, char *filename) {
         };
         chars_push_nstr(&temp, it.name.header.size, it.name.data);
 
-        VariableLookup iplug = lookup_namespaced_variable(&interpreter, temp, "_IPLUG");
-        if (iplug.empty_because_undefined) {
-            printf("Error, expected value for %s\n", temp.data);
-        } else {
-            debug_print_variable_lookup(temp.data, iplug);
-        }
+        bool is_a_plugin = unpack_mk_function_flags(it.flags).is_iplug;
 
-        VariableLookup res = lookup_namespaced_variable(&interpreter, temp, "_RES");
-        if (iplug.empty_because_undefined) {
-            printf("Error, expected value for %s\n", temp.data);
-        } else {
-            debug_print_variable_lookup(temp.data, res);
+        if (is_a_plugin) {
+            // @todo should only be complained about if it's likely to be an iplug (i.e. a plugin)
+
+            VariableLookup iplug = lookup_namespaced_variable(&interpreter, temp, "_IPLUG");
+            if (iplug.empty_because_undefined) {
+                printf("Error, expected value for %s\n", temp.data);
+            } else {
+                debug_print_variable_lookup(temp.data, iplug);
+            }
+
+            VariableLookup res = lookup_namespaced_variable(&interpreter, temp, "_RES");
+            if (res.empty_because_undefined) {
+                printf("Error, expected value for %s\n", temp.data);
+            } else {
+                debug_print_variable_lookup(temp.data, res);
+            }
         }
 
         VariableLookup objs = lookup_namespaced_variable(&interpreter, temp, "_OBJS");
@@ -2286,6 +2294,14 @@ process_ysr_file(Project *project, char *filename) {
 
         VariableLookup deps = lookup_namespaced_variable(&interpreter, temp, "_DEPS");
         debug_print_variable_lookup(temp.data, deps);
+
+        VariableLookup
+            requires
+        = lookup_namespaced_variable(&interpreter, temp, "_REQUIRES");
+        debug_print_variable_lookup(temp.data, requires);
+
+        VariableLookup defines = lookup_namespaced_variable(&interpreter, temp, "_DEFINES");
+        debug_print_variable_lookup(temp.data, defines);
 
         chars_free(&temp);
     }
