@@ -1020,6 +1020,7 @@ build_add_module(Build *build, Interpreter *interpreter, lstr module_name, Add_M
         if (do_define) {
             if (build->modules[module_index].is_defined) {
                 interpreter_add_errorf(interpreter, "module '%s' has already been defined!", module_name);
+                assert(build->modules[module_index].module2_index == options.module2_index);
             }
             build->modules[module_index].is_defined = true;
             build->modules[module_index].module2_index = options.module2_index;
@@ -1047,7 +1048,8 @@ build_add_module(Build *build, Interpreter *interpreter, lstr module_name, Add_M
             recallocz(build->module_name_hashes, hdr->capacity, new_capacity, sizeof build->module_name_hashes[0]);
         hdr->capacity = new_capacity;
     }
-    build->modules[build->modules_header.size] = (Module){.name = p, .is_defined = do_define};
+    build->modules[build->modules_header.size] =
+        (Module){.name = p, .is_defined = do_define, .module2_index = options.module2_index};
     build->module_name_hashes[build->modules_header.size] = hashvalue;
     build->modules_header.size++;
 }
@@ -1237,9 +1239,11 @@ void
 build_define_module(Interpreter *self, /*owned*/ Module2 module) {
     assert(module.name.data[module.name.header.size] == 0);
 
+    int new_module_index = self->modules.header.size;
+
     // @todo should not warn if the module already exists
     build_add_module(self->build, self, module.name.data,
-                     (Add_Module_Options){.do_define = true, .module2_index = self->modules.header.size});
+                     (Add_Module_Options){.do_define = true, .module2_index = new_module_index});
 
     if (g_program_options.emit_debug_log) {
         printf("Adding module '%*s'\n", module.name.header.size, module.name.data);
@@ -2443,7 +2447,12 @@ process_ysr_file(Project *project, char *filename) {
         // Each module is registered in build
         afor(i, interpreter.modules.header) {
             Module2 it = interpreter.modules.data[i];
-            assert(build_lookup_module(interpreter.build, it.name.data, it.name.header.size) >= 0);
+
+            int existing_module_index = build_lookup_module(interpreter.build, it.name.data, it.name.header.size);
+            assert(existing_module_index >= 0);
+            Module *module = &interpreter.build->modules[existing_module_index];
+            assert(module->is_defined);
+            assert(module->module2_index == i);
         }
 
         // Each defined module in build only appears once
@@ -2607,6 +2616,7 @@ main(void) {
         //
         "h:/ln2/trunk/plugins/Gordia/Makefile",
         "h:/ln2/trunk/apps/examples/Makefile.ysr",
+        "h:/ln2/trunk/apps/udemos/Makefile.ysr",
     };
     size_t num_filenames = sizeof filenames_data / sizeof filenames_data[0];
 
