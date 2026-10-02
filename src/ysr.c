@@ -5,6 +5,11 @@
 //
 // 2021-12-14 -Nicolas Léveillé
 
+// Tags:
+// ----
+// @test marks tests
+// @todo marks todos
+
 //
 // So make appears to be both the dependency engine, with some kind
 // of macro-expansion pre-processor bolted onto it. I should never
@@ -55,7 +60,7 @@ typedef struct Program_Options {
 } Program_Options;
 
 Program_Options g_program_options = {
-    .emit_debug_log = false,
+    .emit_debug_log = true,
 };
 
 inline uint64_t
@@ -289,6 +294,8 @@ typedef struct Interpreter {
     } define;
 
     Build *build; // output of our interpreter.
+
+    Charbuf *emit_log;
 } Interpreter;
 
 void interpreter_add_errorf(Interpreter *interpreter, char const *format, ...);
@@ -557,7 +564,7 @@ consume_whitespace(Lexer *lexer) {
 
 int
 is_word_at_char(char c) {
-    return ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || c == '.' /* special variables */;
+    return c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || c == '.' /* special variables */;
 }
 
 int
@@ -578,6 +585,11 @@ consume_word(Lexer *lexer) {
     lstr p = lexer->input;
     while (1) {
         char c = p[lexer->pos];
+
+        // "A variable name may be any sequence of characters not containing ‘:’, ‘#’, ‘=’, or whitespace. However,
+        // variable names containing characters other than letters, numbers, and underscores should be considered
+        // carefully, as in some shells they cannot be passed through the environment to a sub-make"
+
         int isword = ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9') || '_' == c ||
                      '.' == c || '/' == c || '-' == c;
         if (!isword)
@@ -889,7 +901,6 @@ next_token_internal(Lexer *lexer) {
         case '/':
         case '[':
         case ']':
-        case '_':
         case '"':
         case '\'':
         case '{':
@@ -1156,6 +1167,65 @@ debug_print_variable_lookup(lstr name, VariableLookup x) {
     printf("\t%s = %s%s\n", name, x.value, x.is_recursive ? " (recursive)" : "");
 }
 
+typedef struct SetVariableOptions {
+    bool is_recursive;
+} SetVariableOptions;
+
+char *
+Interpreter_strdup(Interpreter *self, lstr x) {
+    (void)self; // for now there is no arena.
+    return _strdup(x);
+}
+
+void
+set_variable(Interpreter *self, lstr key, lstr value, SetVariableOptions options) {
+    assert(key);
+
+    size_t i = lookup_variable_index(self, key);
+    if (i != self->variables.header.size)
+        assert_index(self->variables.header, i);
+
+    if (i == self->variables.header.size && i >= self->variables.header.capacity) {
+        int old_cap = self->variables.header.capacity;
+        int new_cap = align_up(old_cap + old_cap + 1, 16);
+        self->variables.names = recallocz(self->variables.names, old_cap, new_cap, sizeof self->variables.names[0]);
+        self->variables.names_len =
+            recallocz(self->variables.names_len, old_cap, new_cap, sizeof self->variables.names_len[0]);
+        self->variables.values = recallocz(self->variables.values, old_cap, new_cap, sizeof self->variables.values[0]);
+        self->variables.is_recursive =
+            recallocz(self->variables.is_recursive, old_cap, new_cap, sizeof self->variables.is_recursive[0]);
+        self->variables.header.capacity = new_cap;
+    }
+    if (i == self->variables.header.size) { // new name
+        self->variables.header.size++;
+        size_t n = strlen(key);
+        self->variables.names_len[i] = smallsize(n);
+        self->variables.names[i] = Interpreter_strdup(self, key);
+        self->variables.is_recursive[i] = (char)options.is_recursive;
+    }
+    char *old_value = self->variables.values[i];
+    self->variables.values[i] = Interpreter_strdup(self, value ? value : "");
+    free(old_value);
+}
+
+void
+emit_assign(Interpreter *interpreter, Charbuf const variable_name, Charbuf const value,
+            SetVariableOptions const options) {
+    Charbuf *out = interpreter->emit_log;
+    if (out) {
+        chars_pushf(out, "assign(name:'%.*s',value:'%.*s',is_recursive:%s)\n", variable_name.header.size,
+                    variable_name.data, value.header.size, value.data, options.is_recursive ? "true" : "false");
+    }
+}
+
+void
+emit_rule(Interpreter *interpreter, Charbuf target_name) {
+    Charbuf *out = interpreter->emit_log;
+    if (out) {
+        chars_pushf(out, "rule(name:'%.*s')\n", target_name.header.size, target_name.data);
+    }
+}
+
 void
 interpreter_add_verrorf(Interpreter *interpreter, char const *format, va_list args) {
 
@@ -1192,47 +1262,6 @@ interpreter_error(Interpreter *interpreter, char *context, Token tok) {
 
     interpreter_add_errorf(interpreter, "while %s at byte %d, got '%.*s'", context, lexer->pos, tok.len,
                            text(tok, lexer));
-}
-
-char *
-Interpreter_strdup(Interpreter *self, lstr x) {
-    (void)self; // for now there is no arena.
-    return _strdup(x);
-}
-
-typedef struct SetVariableOptions {
-    bool is_recursive;
-} SetVariableOptions;
-
-void
-set_variable(Interpreter *self, lstr key, lstr value, SetVariableOptions options) {
-    assert(key);
-
-    size_t i = lookup_variable_index(self, key);
-    if (i != self->variables.header.size)
-        assert_index(self->variables.header, i);
-
-    if (i == self->variables.header.size && i >= self->variables.header.capacity) {
-        int old_cap = self->variables.header.capacity;
-        int new_cap = align_up(old_cap + old_cap + 1, 16);
-        self->variables.names = recallocz(self->variables.names, old_cap, new_cap, sizeof self->variables.names[0]);
-        self->variables.names_len =
-            recallocz(self->variables.names_len, old_cap, new_cap, sizeof self->variables.names_len[0]);
-        self->variables.values = recallocz(self->variables.values, old_cap, new_cap, sizeof self->variables.values[0]);
-        self->variables.is_recursive =
-            recallocz(self->variables.is_recursive, old_cap, new_cap, sizeof self->variables.is_recursive[0]);
-        self->variables.header.capacity = new_cap;
-    }
-    if (i == self->variables.header.size) { // new name
-        self->variables.header.size++;
-        size_t n = strlen(key);
-        self->variables.names_len[i] = smallsize(n);
-        self->variables.names[i] = Interpreter_strdup(self, key);
-        self->variables.is_recursive[i] = (char)options.is_recursive;
-    }
-    char *old_value = self->variables.values[i];
-    self->variables.values[i] = Interpreter_strdup(self, value ? value : "");
-    free(old_value);
 }
 
 void
@@ -1483,7 +1512,7 @@ interpret_variable_or_function(Interpreter *interpreter, Charbuf *result, Rule_C
     tok = next_token(lexer);
     if (matches_char(tok, '$', lexer)) {
         chars_push_nstr(result, 1, "$");
-        // @todo I'm not sure this is legit
+        // $$ escape @todo verify
         return (struct Variable_Or_Function){.success = true, .kind = VOF_DoubleDollar};
     } else if (context.in_rule && matches_char(tok, '@', lexer) || matches_char(tok, '%', lexer) ||
                matches_char(tok, '<', lexer) || matches_char(tok, '?', lexer) || matches_char(tok, '^', lexer) ||
@@ -1749,19 +1778,32 @@ interpret_include(Interpreter *interpreter, int is_optional) {
 }
 
 int
-interpret_word(Interpreter *self, Token tok, Charbuf *result, Rule_Context context) {
+peek_word_or_variable(Lexer *lexer) {
+    return is_word_at_char(lexer->input[lexer->pos]) || lexer->input[lexer->pos] == '$';
+}
+
+int
+matches_word_or_variable(Token tok, Lexer *lexer) {
+    return matches_char(tok, '$', lexer) || matches_word(tok);
+}
+
+int
+interpret_word_or_variable(Interpreter *self, Token tok, Charbuf *result, Rule_Context context) {
     Lexer *lexer = self->lexer;
     if (matches_char(tok, '$', lexer)) {
         Charbuf reference_value = {0};
         if (!interpret_variable_or_function(self, &reference_value, context).success) {
-            printf("\nVariable/function reference: '%.*s' evaluation failed\n", lexer->pos - tok.pos,
-                   &lexer->input[tok.pos]);
-            interpreter_error(self, "evaluating reference", tok);
+            interpreter_add_errorf(self, "evaluation of variable/function '%.*s' failed", lexer->pos - tok.pos,
+                                   &lexer->input[tok.pos]);
             return 0;
         }
         chars_push_nstr(result, reference_value.header.size, reference_value.data);
         chars_free(&reference_value);
     } else {
+        if (!matches_word(tok)) {
+            interpreter_add_errorf(self, "unexpected token while interpreting word");
+            return 0;
+        }
         chars_push_nstr(result, tok.len, text(tok, lexer));
     }
     return 1;
@@ -1789,16 +1831,37 @@ interpret_toplevel_function(Interpreter *self, Token tok) {
     return false;
 }
 
+// interpret the left hand side of a variable assignment or target
 int
-interpret_assignment(Interpreter *self, Token first_token) {
+interpret_left(Interpreter *interpreter, Token first_token, Charbuf *result) {
+    Lexer *lexer = interpreter->lexer;
+
+    Token tok = first_token;
+    assert(matches_word_or_variable(tok, lexer));
+
+    while (lexer->pos < lexer->endpos) {
+        if (!interpret_word_or_variable(interpreter, tok, result, (Rule_Context){.in_rule = false})) {
+            return 0;
+        }
+        if (!peek_word_or_variable(lexer)) {
+            break;
+        }
+        tok = next_token(lexer);
+    }
+
+    return 1;
+}
+
+int
+interpret_assignment(Interpreter *self, Token first_token, Charbuf variable_name) {
     Lexer *lexer = self->lexer;
-    Token tok;
+    Token tok = first_token;
 
     int initial_pos = lexer->pos;
 
-    do {
-        tok = next_token(lexer);
-    } while (matches_space(tok, lexer));
+    consume_whitespace(lexer);
+
+    tok = next_token(lexer);
 
     if (tok.kind == TokenKind_Assignment) {
         if (g_program_options.emit_debug_log) {
@@ -1808,8 +1871,8 @@ interpret_assignment(Interpreter *self, Token first_token) {
         }
 
         bool all_caps = true;
-        for (int i = 0; all_caps && i < first_token.len; i++) {
-            char c = lexer->input[first_token.pos + i];
+        for (int i = 0; all_caps && i < variable_name.header.size; i++) {
+            char c = variable_name.data[i];
             if ('a' <= c && c <= 'z')
                 all_caps = false;
         }
@@ -1857,10 +1920,10 @@ interpret_assignment(Interpreter *self, Token first_token) {
                 tok = next_token(lexer);
                 if (matches_eol(tok))
                     break;
-                if (!interpret_word(self, tok, &value,
-                                    (Rule_Context){
-                                        0,
-                                    })) {
+                if (!interpret_word_or_variable(self, tok, &value,
+                                                (Rule_Context){
+                                                    0,
+                                                })) {
                     success = false;
                     chars_free(&value);
                     value = (Charbuf){0};
@@ -1879,10 +1942,12 @@ interpret_assignment(Interpreter *self, Token first_token) {
         if (!success)
             return 0;
 
+        SetVariableOptions options = {.is_recursive = is_recursive};
+
+        emit_assign(self, variable_name, value, options);
+
         // @todo @wip set variables, taking into account the type of the variable and the assignment operator.
-        Charbuf variable_name = {0};
-        chars_push_nstr(&variable_name, first_token.len, text(first_token, lexer));
-        set_variable(self, variable_name.data, value.data, (SetVariableOptions){.is_recursive = is_recursive});
+        set_variable(self, variable_name.data, value.data, options);
 
         if (chars_matches_keyword("1", value)) {
             // likely a module?
@@ -1892,7 +1957,6 @@ interpret_assignment(Interpreter *self, Token first_token) {
             }
         }
 
-        chars_free(&variable_name);
         chars_free(&value);
 
         return 1;
@@ -1914,7 +1978,7 @@ interpret_rule_target(Interpreter *interpreter, Charbuf *result) {
             lexer_rewind(lexer, old_pos);
             break;
         }
-        if (!interpret_word(interpreter, tok, result, (Rule_Context){.in_rule = true})) {
+        if (!interpret_word_or_variable(interpreter, tok, result, (Rule_Context){.in_rule = true})) {
             return 0;
         }
     }
@@ -1922,37 +1986,12 @@ interpret_rule_target(Interpreter *interpreter, Charbuf *result) {
 }
 
 int
-interpret_rule(Interpreter *self, Token first_token) {
+interpret_rule(Interpreter *self, Token first_token, Charbuf target_buf) {
     Lexer *lexer = self->lexer;
 
-    Charbuf target_buf = {0};
-    lexer_rewind(lexer, first_token.pos);
-
-    // 1. target
-    if (!interpret_rule_target(self, &target_buf))
-        goto not_a_rule;
-
-    if (!target_buf.data) {
-        printf("RRR: a rule but without a target? That sounds fishy unless it's because there's a variable in here\n");
-        print_context_at(lexer, first_token.pos, "RRR");
-        printf("here\n");
-    }
     printf("rule target: %s\n", target_buf.data);
 
-    Token tok = {0};
-    while (lexer->pos < lexer->endpos) {
-        int old_pos = lexer->pos;
-        tok = next_token(lexer);
-        if (!matches_char(tok, ' ', lexer)) {
-            lexer_rewind(lexer, old_pos);
-            break;
-        }
-        buf_reset(&target_buf.header);
-        if (!interpret_rule_target(self, &target_buf))
-            goto not_a_rule;
-
-        printf("rule target: %s\n", target_buf.data);
-    }
+    Token tok = next_token(lexer);
 
     if (!matches_char(tok, ':', lexer)) {
         goto not_a_rule;
@@ -1990,13 +2029,13 @@ interpret_rule(Interpreter *self, Token first_token) {
         printf("rule here has target name '%s'\n", target_name);
     }
 
-    chars_free(&target_buf);
+    emit_rule(self, target_buf);
+
     return 1;
 not_a_rule:
     print_context_at(lexer, first_token.pos, "XXX");
     printf("XXX: not a rule at pos %d", first_token.pos);
     print_context_at(lexer, first_token.pos, "XXX");
-    chars_free(&target_buf);
     return 0;
 }
 
@@ -2321,6 +2360,7 @@ interpret_toplevel(Interpreter *interpreter) {
     while (lexer->pos < lexer->endpos) {
         consume_whitespace(lexer);
         tok = next_token(lexer); // first token in the line.
+        assert(lexer->toplevel_pos == 0 || tok.pos > lexer->toplevel_pos);
         lexer->toplevel_pos = tok.pos;
 
         // parse directives:
@@ -2336,14 +2376,15 @@ interpret_toplevel(Interpreter *interpreter) {
             return 1;
         } else if (interpret_toplevel_function(interpreter, tok)) {
             return 1;
-        } else if (matches_word(tok)) {
-            if (interpret_assignment(interpreter, tok)) {
+        } else if (matches_word_or_variable(tok, lexer)) {
+            Charbuf left = {0};
+            if (!interpret_left(interpreter, tok, &left)) {
+                goto error_recovery;
+            }
+
+            if (interpret_assignment(interpreter, tok, left)) {
                 return 1;
-            } else if (interpret_toplevel_function(interpreter, tok)) {
-                // @todo can interpret_toplevel_function really happen after matching a word?
-                assert(false);
-                return 1;
-            } else if (interpret_rule(interpreter, tok)) {
+            } else if (interpret_rule(interpreter, tok, left)) {
                 return 1;
             } else {
                 goto error_recovery;
@@ -2387,6 +2428,8 @@ interpreter_load_content(Interpreter *interpreter, char const *file_content, siz
 
     size_t predicate_count = interpreter->predicates.block_header.size;
 
+    int pos = interpreter->lexer->pos;
+
     while (interpret_toplevel(interpreter)) {
         // continue;
 
@@ -2400,6 +2443,10 @@ interpreter_load_content(Interpreter *interpreter, char const *file_content, siz
             buf_reset(&interpreter->errors.errordata.header);
             buf_reset(&interpreter->errors.errors_header);
         }
+
+        assert(interpreter->lexer->pos > pos); // forward progress is required.
+
+        pos = interpreter->lexer->pos;
     }
     if (g_program_options.emit_debug_log) {
         printf("FFF: end\n");
@@ -2585,24 +2632,62 @@ main(void) {
         assert(strcmp(test.data, "hello: world, or should I say sailor?: 42") == 0);
     }
 
+    /* @test{all:} */ {
+        Charbuf log = {0};
+        Interpreter interpreter = {.filename = "simple target", .emit_log = &log};
+
+        char const content[] = "all:\n";
+
+        interpreter_load_content(&interpreter, content, sizeof content - 1);
+
+        assert(strcmp("rule(name:'all')\n", log.data) == 0);
+
+        interpreter_free(&interpreter);
+        chars_free(&log);
+    }
+
     /* @test{.PHONY: foo} */ {
-        Interpreter interpreter = {0};
+        Charbuf log = {0};
+        Interpreter interpreter = {.filename = "phony target", .emit_log = &log};
 
         char const content[] = ".PHONY: foo\n";
 
         interpreter_load_content(&interpreter, content, sizeof content - 1);
+        assert(strcmp("rule(name:'.PHONY')\n", log.data) == 0);
 
         interpreter_free(&interpreter);
+        chars_free(&log);
+    }
+
+    /* @test */ {
+        Charbuf log = {0};
+        Interpreter interpreter = {.filename = "a=b", .emit_log = &log};
+
+        char const content[] = "a=b\nc:=d\n";
+
+        interpreter_load_content(&interpreter, content, sizeof content - 1);
+        assert(strcmp("assign(name:'a',value:'b',is_recursive:true)\n"
+                      "assign(name:'c',value:'d',is_recursive:false)\n",
+                      log.data) == 0);
+
+        interpreter_free(&interpreter);
+        chars_free(&log);
     }
 
     /* @test{$(P)_audio_OBJS:=$(D)/audio.o} */ {
-        Interpreter interpreter = {0};
+        Charbuf log = {0};
+        Interpreter interpreter = {.filename = "variable in variable name", .emit_log = &log};
 
-        char const content[] = "$(P)_audio_OBJS:=$(D)/audio.o\n";
+        char const content[] = "P=Foo\nD=Bar\n$(P)_audio_OBJS:=$(D)/audio.o\n";
 
         interpreter_load_content(&interpreter, content, sizeof content - 1);
+        assert(strcmp("assign(name:'P',value:'Foo',is_recursive:true)\n"
+                      "assign(name:'D',value:'Bar',is_recursive:true)\n"
+                      "assign(name:'Foo_audio_OBJS',value:'Bar/audio.o',is_recursive:false)\n",
+                      log.data) == 0);
 
         interpreter_free(&interpreter);
+        chars_free(&log);
     }
 
     Project project = {
