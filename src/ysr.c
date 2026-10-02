@@ -1916,18 +1916,22 @@ interpret_assignment(Interpreter *self, Token first_token, Charbuf variable_name
         Charbuf value = {0};
         if (!is_recursive) {
             // expand simply expanded variables
-            while (lexer->pos < lexer->endpos) {
+            while (lexer->pos < lexer->endpos && success) {
                 tok = next_token(lexer);
                 if (matches_eol(tok))
                     break;
-                if (!interpret_word_or_variable(self, tok, &value,
-                                                (Rule_Context){
-                                                    0,
-                                                })) {
-                    success = false;
-                    chars_free(&value);
-                    value = (Charbuf){0};
-                    break;
+                if (matches_word_or_variable(tok, lexer)) {
+                    bool error = !interpret_word_or_variable(self, tok, &value,
+                                                             (Rule_Context){
+                                                                 0,
+                                                             });
+                    if (error) {
+                        success = false;
+                        chars_free(&value);
+                        value = (Charbuf){0};
+                    }
+                } else {
+                    chars_push_nstr(&value, tok.len, text(tok, lexer));
                 }
             }
         } else {
