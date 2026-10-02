@@ -348,6 +348,14 @@ chars_from_lstr(lstr str) {
 }
 
 void
+chars_reset(Charbuf *buf) {
+    if (buf->header.size > 0) {
+        buf_reset(&buf->header);
+        buf->data[0] = '\0';
+    }
+}
+
+void
 chars_free(Charbuf *buf) {
     buf_reset(&buf->header);
     free(buf->data);
@@ -1646,6 +1654,7 @@ interpret_filename(Interpreter *interpreter, Charbuf *result) {
     // I don't think there's anything specially filenamy about this, it's a generic interpretation of a string.
 
     Lexer *lexer = interpreter->lexer;
+    int pos = lexer->pos;
     while (lexer->pos < lexer->endpos) {
         int old_pos = lexer->pos;
         Token tok = next_token(lexer);
@@ -1671,7 +1680,7 @@ interpret_filename(Interpreter *interpreter, Charbuf *result) {
             chars_push_nstr(result, tok.len, text(tok, lexer));
         }
     }
-    return 1;
+    return lexer->pos > pos;
 }
 
 void interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional, SysError *error);
@@ -1709,7 +1718,7 @@ interpret_include_find_and_load_file(Interpreter *interpreter, char *filename_sp
 
     for (IncludeDir *p = &include_dirs[0], *l = &include_dirs[sizeof include_dirs / sizeof include_dirs[0]]; p != l;
          p++) {
-        buf_reset(&path.header);
+        chars_reset(&path);
         chars_push_nstr(&path, p->n, p->path);
         if (path.header.size > 0) {
             char delimiter = path.data[path.header.size - 1];
@@ -1749,7 +1758,7 @@ interpret_include(Interpreter *interpreter, int is_optional) {
     }
 
     expects_space(interpreter);
-    buf_reset(&interpreter->tmpbuf.header);
+    chars_reset(&interpreter->tmpbuf);
     if (!interpret_filename(interpreter, &interpreter->tmpbuf)) {
         printf("III: could not interpret filename here");
         print_context_at(interpreter->lexer, interpreter->lexer->pos, 0);
@@ -1768,7 +1777,7 @@ interpret_include(Interpreter *interpreter, int is_optional) {
             interpreter_error(interpreter, "expected space between the filenames of an include directive", tok);
             break;
         }
-        buf_reset(&interpreter->tmpbuf.header);
+        chars_reset(&interpreter->tmpbuf);
         interpret_filename(interpreter, &interpreter->tmpbuf);
         interpret_include_find_and_load_file(interpreter, interpreter->tmpbuf.data, is_optional);
     }
@@ -2444,7 +2453,7 @@ interpreter_load_content(Interpreter *interpreter, char const *file_content, siz
                         &interpreter->errors.errordata.data[interpreter->errors.errors[error_index].index]);
             }
 
-            buf_reset(&interpreter->errors.errordata.header);
+            chars_reset(&interpreter->errors.errordata);
             buf_reset(&interpreter->errors.errors_header);
         }
 
@@ -2587,6 +2596,8 @@ process_ysr_file(Project *project, char *filename) {
 
 void
 interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional, SysError *error) {
+    assert(filename);
+    assert(error);
     Lexer *old_lexer = interpreter->lexer;
     char *old_filename = interpreter->filename;
     char *old_dirname = interpreter->dirname;
@@ -2678,6 +2689,25 @@ main(void) {
         chars_free(&log);
     }
 
+    /* @test */ {
+        Charbuf log = {0};
+        Interpreter interpreter = {.filename = "recursive variable", .emit_log = &log};
+
+        char const content[] = "a=b\n"
+                               "c=$(a)\n"
+                               "$(c):\n";
+
+        interpreter_load_content(&interpreter, content, sizeof content - 1);
+        assert(strcmp("assign(name:'a',value:'b',is_recursive:true)\n"
+                      "assign(name:'c',value:'$(a)',is_recursive:true)\n"
+                      "rule(name:'b')\n" // recursively expanding variable c should produce b when it is expanded
+                      ,
+                      log.data) == 0);
+
+        interpreter_free(&interpreter);
+        chars_free(&log);
+    }
+
     /* @test{$(P)_audio_OBJS:=$(D)/audio.o} */ {
         Charbuf log = {0};
         Interpreter interpreter = {.filename = "variable in variable name", .emit_log = &log};
@@ -2689,6 +2719,19 @@ main(void) {
                       "assign(name:'D',value:'Bar',is_recursive:true)\n"
                       "assign(name:'Foo_audio_OBJS',value:'Bar/audio.o',is_recursive:false)\n",
                       log.data) == 0);
+
+        interpreter_free(&interpreter);
+        chars_free(&log);
+    }
+
+    /* @test */ { // @todo @defect
+        Charbuf log = {0};
+
+        Interpreter interpreter = {.filename = "include word directive inside line", .emit_log = &log};
+
+        char const content[] = "$(call require-directory,$(mDNSResponder_INSTALLDIR)/include)\n";
+
+        interpreter_load_content(&interpreter, content, sizeof content - 1);
 
         interpreter_free(&interpreter);
         chars_free(&log);
