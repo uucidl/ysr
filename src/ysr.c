@@ -299,6 +299,7 @@ typedef struct Interpreter {
 } Interpreter;
 
 void interpreter_add_errorf(Interpreter *interpreter, char const *format, ...);
+int interpret_phrase(Interpreter *interpreter, Token first_token, Charbuf *result);
 
 uint64_t
 hash(char const *bytes, size_t n) {
@@ -570,6 +571,14 @@ consume_whitespace(Lexer *lexer) {
     }
 }
 
+void
+consume_whitespace_or_eol(Lexer *lexer) {
+    lstr p = lexer->input;
+    while (p[lexer->pos] == ' ' || p[lexer->pos] == '\t' || p[lexer->pos] == '\r' || p[lexer->pos] == '\n') {
+        lexer->pos++;
+    }
+}
+
 int
 is_word_at_char(char c) {
     return c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || c == '.' /* special variables */;
@@ -645,6 +654,11 @@ print_context_at(Lexer *lexer, int pos, char const *optional_prefix) {
 void
 print_error_at(Lexer *lexer, int pos) {
     print_context_at(lexer, pos, "error");
+}
+
+Lexer
+lexer_make(char const *content, int content_size) {
+    return (Lexer){.input = content, .endpos = content_size};
 }
 
 void
@@ -1309,7 +1323,7 @@ build_define_required_modules(Interpreter *interpreter) {
                 requires
             = lookup_namespaced_variable(interpreter, temp, "_REQUIRES");
 
-            Lexer lexer = {.input = requires.value};
+            Lexer lexer = lexer_make(requires.value, smallsize(strlen(requires.value)));
             Token tok = next_token(&lexer);
             while (matches_word(tok)) {
                 Charbuf other_module_name = {0};
@@ -1507,7 +1521,8 @@ typedef struct Variable_Or_Function {
     bool success;
     enum {
         VOF_DoubleDollar,
-        VOF_Variable,
+        VOF_VariableSimple,
+        VOF_VariableRecursive,
         VOF_Function,
         VOF_Automatic,
     } kind;
@@ -1645,8 +1660,41 @@ interpret_variable_or_function(Interpreter *interpreter, Charbuf *result, Rule_C
         interpreter_add_errorf(interpreter, "could not find value of variable '%s'", variable_name.data);
         return (struct Variable_Or_Function){.success = false};
     }
-    chars_push_nstr(result, strlen(var.value), var.value);
-    return (struct Variable_Or_Function){.success = true, .kind = VOF_Variable};
+    if (var.is_recursive) {
+        Lexer *old_lexer = interpreter->lexer;
+        Lexer sublexer = lexer_make(var.value, smallsize(strlen(var.value)));
+
+        interpreter->lexer = &sublexer;
+
+        consume_whitespace_or_eol(interpreter->lexer);
+
+        Token subtok = next_token(interpreter->lexer);
+
+        bool error = false;
+        if (subtok.pos < interpreter->lexer->endpos) {
+            if (!interpret_phrase(interpreter, subtok, result)) {
+                interpreter_add_errorf(interpreter, "error in recursive evaluation of variable '%s'",
+                                       variable_name.data);
+                error = true;
+            }
+            if (interpreter->lexer->pos != interpreter->lexer->endpos) {
+                interpreter_add_errorf(interpreter,
+                                       "error in recursive evaluation of variable '%s, did not consume all input'",
+                                       variable_name.data);
+                error = true;
+            }
+        }
+
+        interpreter->lexer = old_lexer;
+        if (error) {
+            return (struct Variable_Or_Function){.success = false};
+        }
+    } else {
+        chars_push_nstr(result, strlen(var.value), var.value);
+    }
+
+    return (struct Variable_Or_Function){.success = true,
+                                         .kind = var.is_recursive ? VOF_VariableRecursive : VOF_VariableSimple};
 }
 
 int
@@ -1840,15 +1888,14 @@ interpret_toplevel_function(Interpreter *self, Token tok) {
     return false;
 }
 
-// interpret the left hand side of a variable assignment or target
 int
-interpret_left(Interpreter *interpreter, Token first_token, Charbuf *result) {
+interpret_phrase(Interpreter *interpreter, Token first_token, Charbuf *result) {
     Lexer *lexer = interpreter->lexer;
 
     Token tok = first_token;
     assert(matches_word_or_variable(tok, lexer));
 
-    while (lexer->pos < lexer->endpos) {
+    while (tok.pos < lexer->endpos) {
         if (!interpret_word_or_variable(interpreter, tok, result, (Rule_Context){.in_rule = false})) {
             return 0;
         }
@@ -1859,6 +1906,12 @@ interpret_left(Interpreter *interpreter, Token first_token, Charbuf *result) {
     }
 
     return 1;
+}
+
+// interpret the left hand side of a variable assignment or target
+int
+interpret_left(Interpreter *interpreter, Token first_token, Charbuf *result) {
+    return interpret_phrase(interpreter, first_token, result);
 }
 
 int
@@ -2491,7 +2544,7 @@ process_ysr_file(Project *project, char *filename) {
     set_variable(&interpreter, "YSR.libdir", project->ysrlibdir, (SetVariableOptions){0});
     set_variable(&interpreter, "HOST_CONFIG_MK", project->host_config_mk, (SetVariableOptions){0});
 
-    set_variable(&interpreter, "DEST", "<dest>", (SetVariableOptions){.is_recursive = 1});
+    set_variable(&interpreter, "DEST", "<dest>", (SetVariableOptions){.is_recursive = 0});
     set_variable(&interpreter, "YSR.bin", "ysr", (SetVariableOptions){0});
 
     build_create(&build);
@@ -2694,13 +2747,13 @@ main(void) {
         Interpreter interpreter = {.filename = "recursive variable", .emit_log = &log};
 
         char const content[] = "a=b\n"
-                               "c=$(a)\n"
+                               "c=$(a)_foo\n"
                                "$(c):\n";
 
         interpreter_load_content(&interpreter, content, sizeof content - 1);
         assert(strcmp("assign(name:'a',value:'b',is_recursive:true)\n"
-                      "assign(name:'c',value:'$(a)',is_recursive:true)\n"
-                      "rule(name:'b')\n" // recursively expanding variable c should produce b when it is expanded
+                      "assign(name:'c',value:'$(a)_foo',is_recursive:true)\n"
+                      "rule(name:'b_foo')\n" // recursively expanding variable c should produce b when it is expanded
                       ,
                       log.data) == 0);
 
