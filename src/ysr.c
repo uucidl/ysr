@@ -262,8 +262,8 @@ typedef struct Interpreter {
     Project *project;
 
     Lexer *lexer;
-    char *filename;
-    char *dirname;
+    char const *filename;
+    char const *dirname;
     Charbuf tmpbuf;
 
     // > A variable is a name defined in a makefile to represent a string of text, called the variable’s value.
@@ -581,7 +581,8 @@ consume_whitespace_or_eol(Lexer *lexer) {
 
 int
 is_word_at_char(char c) {
-    return c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || c == '.' /* special variables */;
+    return c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || c == '.' /* special variables */ ||
+           c == '/' /* paths */;
 }
 
 int
@@ -890,7 +891,7 @@ next_token_internal(Lexer *lexer) {
                     return assign_token;
                 }
             }
-            Token char_token = {.pos = lexer->pos, .len = 1};
+            Token char_token = {.pos = lexer->pos, .len = 1, .kind = TokenKind_Word};
             lexer->pos++;
             return char_token;
         } break;
@@ -907,7 +908,7 @@ next_token_internal(Lexer *lexer) {
                 terminate_token(lexer, &minus_include_token);
                 return minus_include_token;
             } else {
-                Token minus_token = {.pos = lexer->pos};
+                Token minus_token = {.pos = lexer->pos, .kind = TokenKind_Word};
                 lexer->pos++;
                 terminate_token(lexer, &minus_token);
                 return minus_token;
@@ -928,7 +929,7 @@ next_token_internal(Lexer *lexer) {
         case '{':
         case '}': {
             // these tokens stand for themselves.
-            Token char_token = {.pos = lexer->pos++, .len = 1};
+            Token char_token = {.pos = lexer->pos++, .len = 1, .kind = TokenKind_Word};
             return char_token;
         } break;
         case '=': {
@@ -2652,8 +2653,8 @@ interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional,
     assert(filename);
     assert(error);
     Lexer *old_lexer = interpreter->lexer;
-    char *old_filename = interpreter->filename;
-    char *old_dirname = interpreter->dirname;
+    char const *old_filename = interpreter->filename;
+    char const *old_dirname = interpreter->dirname;
 
     size_t num_bytes = 0;
     char *file_content = read_whole_file(filename, &num_bytes, error);
@@ -2690,6 +2691,20 @@ interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional,
     free(file_content);
 }
 
+void
+test_case_interpreter(lstr test_name, lstr content, lstr expected) {
+    Charbuf log = {0};
+    Interpreter interpreter = {.filename = test_name, .emit_log = &log};
+
+    interpreter_load_content(&interpreter, content, strlen(content));
+
+    assert(strcmp(expected, log.data) == 0);
+    assert(interpreter.errors.errors_header.size == 0);
+
+    interpreter_free(&interpreter);
+    chars_free(&log);
+}
+
 int
 main(void) {
     /* @test */ {
@@ -2700,95 +2715,45 @@ main(void) {
         assert(strcmp(test.data, "hello: world, or should I say sailor?: 42") == 0);
     }
 
-    /* @test{all:} */ {
-        Charbuf log = {0};
-        Interpreter interpreter = {.filename = "simple target", .emit_log = &log};
+    // @test
+    test_case_interpreter("simple target", "all:\n", "rule(name:'all')\n");
+    test_case_interpreter("phony target", ".PHONY: foo\n", "rule(name:'.PHONY')\n");
+    test_case_interpreter("a=b", "a=b\nc:=d\n",
+                          "assign(name:'a',value:'b',is_recursive:true)\n"
+                          "assign(name:'c',value:'d',is_recursive:false)\n");
+    test_case_interpreter(
+        "recursive variable",
+        "a=b\n"
+        "c=$(a)_foo\n"
+        "$(c):\n",
+        "assign(name:'a',value:'b',is_recursive:true)\n"
+        "assign(name:'c',value:'$(a)_foo',is_recursive:true)\n"
+        "rule(name:'b_foo')\n" // recursively expanding variable c should produce b when it is expanded
+    );
+    test_case_interpreter(
+        "recursive variable 2",
+        "a=b\n"
+        "c=$(a)/foo\n"
+        "$(c):\n",
+        "assign(name:'a',value:'b',is_recursive:true)\n"
+        "assign(name:'c',value:'$(a)/foo',is_recursive:true)\n"
+        "rule(name:'b/foo')\n" // recursively expanding variable c should produce b when it is expanded
+    );
+    test_case_interpreter("variable in variable name", "P=Foo\nD=Bar\n$(P)_audio_OBJS:=$(D)/audio.o\n",
+                          "assign(name:'P',value:'Foo',is_recursive:true)\n"
+                          "assign(name:'D',value:'Bar',is_recursive:true)\n"
+                          "assign(name:'Foo_audio_OBJS',value:'Bar/audio.o',is_recursive:false)\n");
 
-        char const content[] = "all:\n";
+    test_case_interpreter("multiple targets in a rule, by variable",
+                          "a=foo\n"
+                          "b=bar\n"
+                          "$(a) $(b):\n",
+                          "assign(name:'a',value:'foo',is_recursive:true)\n"
+                          "assign(name:'b',value:'bar',is_recursive:true)\n"
+                          "rule(name:'foo bar')\n");
 
-        interpreter_load_content(&interpreter, content, sizeof content - 1);
-
-        assert(strcmp("rule(name:'all')\n", log.data) == 0);
-
-        interpreter_free(&interpreter);
-        chars_free(&log);
-    }
-
-    /* @test{.PHONY: foo} */ {
-        Charbuf log = {0};
-        Interpreter interpreter = {.filename = "phony target", .emit_log = &log};
-
-        char const content[] = ".PHONY: foo\n";
-
-        interpreter_load_content(&interpreter, content, sizeof content - 1);
-        assert(strcmp("rule(name:'.PHONY')\n", log.data) == 0);
-
-        interpreter_free(&interpreter);
-        chars_free(&log);
-    }
-
-    /* @test */ {
-        Charbuf log = {0};
-        Interpreter interpreter = {.filename = "a=b", .emit_log = &log};
-
-        char const content[] = "a=b\nc:=d\n";
-
-        interpreter_load_content(&interpreter, content, sizeof content - 1);
-        assert(strcmp("assign(name:'a',value:'b',is_recursive:true)\n"
-                      "assign(name:'c',value:'d',is_recursive:false)\n",
-                      log.data) == 0);
-
-        interpreter_free(&interpreter);
-        chars_free(&log);
-    }
-
-    /* @test */ {
-        Charbuf log = {0};
-        Interpreter interpreter = {.filename = "recursive variable", .emit_log = &log};
-
-        char const content[] = "a=b\n"
-                               "c=$(a)_foo\n"
-                               "$(c):\n";
-
-        interpreter_load_content(&interpreter, content, sizeof content - 1);
-        assert(strcmp("assign(name:'a',value:'b',is_recursive:true)\n"
-                      "assign(name:'c',value:'$(a)_foo',is_recursive:true)\n"
-                      "rule(name:'b_foo')\n" // recursively expanding variable c should produce b when it is expanded
-                      ,
-                      log.data) == 0);
-
-        interpreter_free(&interpreter);
-        chars_free(&log);
-    }
-
-    /* @test{$(P)_audio_OBJS:=$(D)/audio.o} */ {
-        Charbuf log = {0};
-        Interpreter interpreter = {.filename = "variable in variable name", .emit_log = &log};
-
-        char const content[] = "P=Foo\nD=Bar\n$(P)_audio_OBJS:=$(D)/audio.o\n";
-
-        interpreter_load_content(&interpreter, content, sizeof content - 1);
-        assert(strcmp("assign(name:'P',value:'Foo',is_recursive:true)\n"
-                      "assign(name:'D',value:'Bar',is_recursive:true)\n"
-                      "assign(name:'Foo_audio_OBJS',value:'Bar/audio.o',is_recursive:false)\n",
-                      log.data) == 0);
-
-        interpreter_free(&interpreter);
-        chars_free(&log);
-    }
-
-    /* @test */ { // @todo @defect
-        Charbuf log = {0};
-
-        Interpreter interpreter = {.filename = "include word directive inside line", .emit_log = &log};
-
-        char const content[] = "$(call require-directory,$(mDNSResponder_INSTALLDIR)/include)\n";
-
-        interpreter_load_content(&interpreter, content, sizeof content - 1);
-
-        interpreter_free(&interpreter);
-        chars_free(&log);
-    }
+    test_case_interpreter("include word directive inside line",
+                          "$(call require-directory,$(mDNSResponder_INSTALLDIR)/include)\n", "");
 
     Project project = {
         .topdir = "h:/ln2/trunk",
