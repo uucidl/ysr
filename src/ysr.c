@@ -300,6 +300,7 @@ typedef struct Interpreter {
 
 void interpreter_add_errorf(Interpreter *interpreter, char const *format, ...);
 int interpret_phrase(Interpreter *interpreter, Token first_token, Charbuf *result);
+int interpret_phrase_delimited_by(Interpreter *interpreter, char const *delimiters, Charbuf *result);
 
 uint64_t
 hash(char const *bytes, size_t n) {
@@ -729,6 +730,26 @@ matches_any_eol(Lexer *lexer, int *len_of_eol) {
     return 0;
 }
 
+int
+matches_eol(Token tok) {
+    return tok.kind == TokenKind_Eol;
+}
+
+int
+matches_word(Token tok) {
+    return tok.kind == TokenKind_Word;
+}
+
+int
+matches_char(Token tok, char c, Lexer *lexer) {
+    return tok.len == 1 && lexer->input[tok.pos] == c;
+}
+
+int
+matches_word_or_variable(Token tok, Lexer *lexer) {
+    return matches_char(tok, '$', lexer) || matches_word(tok);
+}
+
 void
 consume_line(Lexer *lexer) {
     while (1) {
@@ -1106,21 +1127,6 @@ token_matches_keyword(char const *keyword, Token tok, Lexer *lexer) {
     return 0 == strncmp(&lexer->input[tok.pos], keyword, n);
 }
 
-int
-matches_eol(Token tok) {
-    return tok.kind == TokenKind_Eol;
-}
-
-int
-matches_word(Token tok) {
-    return tok.kind == TokenKind_Word;
-}
-
-int
-matches_char(Token tok, char c, Lexer *lexer) {
-    return tok.len == 1 && lexer->input[tok.pos] == c;
-}
-
 lstr
 text(Token tok, Lexer *lexer) {
     return &lexer->input[tok.pos];
@@ -1232,12 +1238,34 @@ set_variable(Interpreter *self, lstr key, lstr value, SetVariableOptions options
 }
 
 void
+append_to_variable_by_index(Interpreter *interpreter, int variable_index, lstr value) {
+    assert_index(interpreter->variables.header, variable_index);
+
+    if (interpreter->variables.is_recursive[variable_index]) {
+        // @todo
+    } else {
+        // @todo
+    }
+    printf("error: appending to variable is not implemented yet\n");
+    interpreter_add_errorf(interpreter, "appending to variable is not implemented yet");
+}
+
+void
 emit_assign(Interpreter *interpreter, Charbuf const variable_name, Charbuf const value,
             SetVariableOptions const options) {
     Charbuf *out = interpreter->emit_log;
     if (out) {
         chars_pushf(out, "assign(name:'%.*s',value:'%.*s',is_recursive:%s)\n", variable_name.header.size,
                     variable_name.data, value.header.size, value.data, options.is_recursive ? "true" : "false");
+    }
+}
+
+void
+emit_append(Interpreter *interpreter, Charbuf const variable_name, Charbuf const value) {
+    Charbuf *out = interpreter->emit_log;
+    if (out) {
+        chars_pushf(out, "append(name:'%.*s',value:'%.*s')\n", variable_name.header.size, variable_name.data,
+                    value.header.size, value.data);
     }
 }
 
@@ -1393,22 +1421,7 @@ typedef struct Rule_Context {
 // otherwise it will stop at the first encountered )
 int
 interpret_function_argument(Interpreter *self, Charbuf *result) {
-    Lexer *lexer = self->lexer;
-    Token tok = {0};
-    while (lexer->pos < lexer->endpos) {
-        int old_pos = lexer->pos;
-        tok = next_token(lexer);
-        if (matches_char(tok, ',', lexer)) {
-            lexer_rewind(lexer, old_pos); // instead we could return the token
-            break;
-        } else if (matches_char(tok, ')', lexer)) {
-            lexer_rewind(lexer, old_pos);
-            break;
-        } else {
-            chars_push_nstr(result, tok.len, text(tok, lexer));
-        }
-    }
-    return 1;
+    return interpret_phrase_delimited_by(self, ",)", result);
 }
 
 bool
@@ -1478,7 +1491,7 @@ interpret_function_generic(Interpreter *interpreter, Charbuf function_name, size
                         0,
                     };
                     if (interpret_function_argument(interpreter, &arg)) {
-                        printf("'%*s', ", arg.header.size, arg.data);
+                        printf("got function argument: '%*s', ", arg.header.size, arg.data);
                     }
                     chars_free(&arg);
 
@@ -1672,18 +1685,17 @@ interpret_variable_or_function(Interpreter *interpreter, Charbuf *result, Rule_C
         Token subtok = next_token(interpreter->lexer);
 
         bool error = false;
-        if (subtok.pos < interpreter->lexer->endpos) {
-            if (!interpret_phrase(interpreter, subtok, result)) {
-                interpreter_add_errorf(interpreter, "error in recursive evaluation of variable '%s'",
-                                       variable_name.data);
-                error = true;
+        while (subtok.pos < interpreter->lexer->endpos) {
+            if (matches_word_or_variable(subtok, interpreter->lexer)) {
+                if (!interpret_phrase(interpreter, subtok, result)) {
+                    interpreter_add_errorf(interpreter, "error in recursive evaluation of variable '%s'",
+                                           variable_name.data);
+                    error = true;
+                }
+            } else {
+                chars_push_nstr(result, subtok.len, text(subtok, interpreter->lexer));
             }
-            if (interpreter->lexer->pos != interpreter->lexer->endpos) {
-                interpreter_add_errorf(interpreter,
-                                       "error in recursive evaluation of variable '%s, did not consume all input'",
-                                       variable_name.data);
-                error = true;
-            }
+            subtok = next_token(interpreter->lexer);
         }
 
         interpreter->lexer = old_lexer;
@@ -1841,11 +1853,6 @@ peek_word_or_variable(Lexer *lexer) {
 }
 
 int
-matches_word_or_variable(Token tok, Lexer *lexer) {
-    return matches_char(tok, '$', lexer) || matches_word(tok);
-}
-
-int
 interpret_word_or_variable(Interpreter *self, Token tok, Charbuf *result, Rule_Context context) {
     Lexer *lexer = self->lexer;
     if (matches_char(tok, '$', lexer)) {
@@ -1900,6 +1907,38 @@ interpret_phrase(Interpreter *interpreter, Token first_token, Charbuf *result) {
         if (!interpret_word_or_variable(interpreter, tok, result, (Rule_Context){.in_rule = false})) {
             return 0;
         }
+        int pos = lexer->pos;
+        consume_whitespace(lexer);
+        if (lexer->pos > pos) {
+            chars_push_nstr(result, 1, " ");
+        }
+        if (!peek_word_or_variable(lexer)) {
+            break;
+        }
+        tok = next_token(lexer);
+    }
+
+    return 1;
+}
+
+int
+interpret_phrase_delimited_by(Interpreter *interpreter, char const *delimiters, Charbuf *result) {
+    Lexer *lexer = interpreter->lexer;
+
+    consume_whitespace(lexer);
+
+    Token tok = next_token(lexer);
+    assert(matches_word_or_variable(tok, lexer));
+
+    while (tok.pos < lexer->endpos) {
+        if (!interpret_word_or_variable(interpreter, tok, result, (Rule_Context){.in_rule = false})) {
+            return 0;
+        }
+        int pos = lexer->pos;
+        consume_whitespace(lexer);
+        if (lexer->pos > pos) {
+            chars_push_nstr(result, 1, " ");
+        }
         if (!peek_word_or_variable(lexer)) {
             break;
         }
@@ -1942,13 +1981,13 @@ interpret_assignment(Interpreter *self, Token first_token, Charbuf variable_name
         if (g_program_options.emit_debug_log)
             if (all_caps)
                 printf(" (parameter for implicit rules or user-overridable parameter)");
-        int c = text(tok, lexer)[0];
+        int behavior_char = text(tok, lexer)[0];
 
         if (g_program_options.emit_debug_log)
             printf(" flavor:");
 
-        int is_recursive = c == ':' ? 0 : 1;
-        switch (c) {
+        int is_recursive = behavior_char == ':' ? 0 : 1;
+        switch (behavior_char) {
             break;
         case ':':
             if (g_program_options.emit_debug_log)
@@ -1968,7 +2007,7 @@ interpret_assignment(Interpreter *self, Token first_token, Charbuf variable_name
             break;
         default: {
             print_error_at(lexer, first_token.pos);
-            printf("  unknown type (%c)\n", c);
+            printf("  unknown type (%c)\n", behavior_char);
             return 0;
         }
         }
@@ -2009,18 +2048,32 @@ interpret_assignment(Interpreter *self, Token first_token, Charbuf variable_name
         if (!success)
             return 0;
 
+        bool is_assign = true;
         SetVariableOptions options = {.is_recursive = is_recursive};
 
-        emit_assign(self, variable_name, value, options);
+        if (behavior_char == '+') {
+            int variable_index = lookup_variable_index(self, variable_name.data);
+            if (variable_index == self->variables.header.size) {
+                options.is_recursive = true;
+                is_assign = true;
+            } else {
+                is_assign = false;
+                append_to_variable_by_index(self, variable_index, value.data);
+                emit_append(self, variable_name, value);
+            }
+        }
 
-        // @todo @wip set variables, taking into account the type of the variable and the assignment operator.
-        set_variable(self, variable_name.data, value.data, options);
+        if (is_assign) {
+            emit_assign(self, variable_name, value, options);
+            // @todo @wip set variables, taking into account the type of the variable and the assignment operator.
+            set_variable(self, variable_name.data, value.data, options);
 
-        if (chars_matches_keyword("1", value)) {
-            // likely a module?
-            printf("MMM: are you a module? %s\n", variable_name.data);
-            if (self->build) {
-                build_add_module(self->build, self, variable_name.data, (Add_Module_Options){0});
+            if (chars_matches_keyword("1", value)) {
+                // likely a module?
+                printf("MMM: are you a module? %s\n", variable_name.data);
+                if (self->build) {
+                    build_add_module(self->build, self, variable_name.data, (Add_Module_Options){0});
+                }
             }
         }
 
@@ -2692,14 +2745,17 @@ interpreter_load_file(Interpreter *interpreter, char *filename, int is_optional,
 }
 
 void
-test_case_interpreter(lstr test_name, lstr content, lstr expected) {
+test_case_interpreter(lstr test_name, lstr content, lstr expected_str) {
     Charbuf log = {0};
     Interpreter interpreter = {.filename = test_name, .emit_log = &log};
 
     interpreter_load_content(&interpreter, content, strlen(content));
 
-    assert(strcmp(expected, log.data) == 0);
+    Charbuf expected = {.header.size = smallsize(strlen(expected_str)), .data = (char *)expected_str};
+
+    assert(chars_equal(&expected, &log));
     assert(interpreter.errors.errors_header.size == 0);
+    assert(interpreter.errors.errordata.header.capacity == 0); // proof that an error never occurred
 
     interpreter_free(&interpreter);
     chars_free(&log);
@@ -2754,6 +2810,15 @@ main(void) {
 
     test_case_interpreter("include word directive inside line",
                           "$(call require-directory,$(mDNSResponder_INSTALLDIR)/include)\n", "");
+
+    test_case_interpreter("unknown defect 1",
+                          "a_DEFINES+=HAVE_LINUX_SOUNDCARD_H\n"
+                          "a_DEFINES+=PA_TRACK_MEMORY=0\n"
+                          "c_DEFINES:=$(a_DEFINES)\n",
+                          "assign(name:a,value:HAVE_LINUX_SOUNDCARD_H,is_recursive:true)\n"
+                          "append(name:a,value:PA_TRACK_MEMORY=0)\n"
+                          "assign(name:'c_DEFINES',value:'HAVE_LINUX_SOUNDCARD_H "
+                          "PA_TRACK_MEMORY=0',is_recursive:true)\n");
 
     Project project = {
         .topdir = "h:/ln2/trunk",
